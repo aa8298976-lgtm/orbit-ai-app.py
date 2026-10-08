@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r orbit-ai/requirements.txt
+          pip install -r requirements.txt
 
       - name: Test ORBIT
         working-directory: orbit-ai
