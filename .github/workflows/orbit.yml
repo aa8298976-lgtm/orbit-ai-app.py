@@ -1,1 +1,28 @@
+name: ORBIT AI
 
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r orbit-ai/requirements.txt
+
+      - name: Test ORBIT
+        working-directory: orbit-ai
+        run: |
+          python test_tools.py
