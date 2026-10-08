@@ -19,11 +19,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        working-directory: orbit-ai
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ./orbit-ai/requirements.txt
 
       - name: Test ORBIT
-        working-directory: orbit-ai
-        env:
-          PYTHONPATH: .
-        run: python test_tools.py
+        run: |
+          cd orbit-ai
+          PYTHONPATH=. python test_tools.py
