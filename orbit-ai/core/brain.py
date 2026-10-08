@@ -1,12 +1,6 @@
 import os
 from openai import OpenAI
 
-API_KEY = os.getenv("OPENAI_API_KEY")
-
-if not API_KEY:
-    raise RuntimeError("OPENAI_API_KEY is not configured.")
-
-client = OpenAI(api_key=API_KEY)
 
 SYSTEM_PROMPT = """
 You are ORBIT AI.
@@ -14,6 +8,7 @@ You are ORBIT AI.
 You are an intelligent, goal-oriented AI agent.
 
 Your responsibilities:
+
 1. Understand the user's goal.
 2. Break complex goals into logical steps.
 3. Create practical plans.
@@ -27,7 +22,22 @@ Your responsibilities:
 You are designed to become a modular open-world AI system.
 """
 
+
+def get_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY is not configured."
+        )
+
+    return OpenAI(api_key=api_key)
+
+
 def ask_orbit(user_input):
+
+    client = get_client()
+
     response = client.responses.create(
         model="gpt-5",
         instructions=SYSTEM_PROMPT,
