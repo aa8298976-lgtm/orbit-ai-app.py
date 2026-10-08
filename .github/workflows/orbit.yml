@@ -23,7 +23,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Show ORBIT structure
+        run: |
+          pwd
+          find orbit-ai -maxdepth 2 -type f
+
       - name: Test ORBIT
+        working-directory: orbit-ai
         env:
           PYTHONPATH: .
         run: |
