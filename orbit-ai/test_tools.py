@@ -1,33 +1,39 @@
 from core.agent import OrbitAgent
 
 
-agent = OrbitAgent()
+def main():
+    print("=== ORBIT SYSTEM TEST ===")
 
-print("=== ORBIT SYSTEM TEST ===")
+    agent = OrbitAgent()
 
-print("\nAvailable tools:")
-print(agent.tools.list_tools())
+    print("\nAvailable tools:")
+    print(agent.tools.list_tools())
 
-print("\nCalculator test:")
-print(
-    agent.use_tool(
-        "calculator",
-        expression="25 * 4 + 10"
+    print("\nCalculator test:")
+    print(
+        agent.use_tool(
+            "calculator",
+            expression="25 * 4 + 10"
+        )
     )
-)
 
-print("\nText analyzer test:")
-print(
-    agent.use_tool(
-        "text_analyzer",
-        text="ORBIT is an open world AI."
+    print("\nText analyzer test:")
+    print(
+        agent.use_tool(
+            "text_analyzer",
+            text="ORBIT is an open world AI."
+        )
     )
-)
 
-print("\nMemory test:")
+    print("\nMemory test:")
 
-agent.run(
-    "Build a system that can research information and create useful plans."
-)
+    agent.memory.add(
+        "ORBIT system test completed.",
+        memory_type="system_test"
+    )
 
-print(agent.get_memory())
+    print(agent.get_memory())
+
+
+if __name__ == "__main__":
+    main()
