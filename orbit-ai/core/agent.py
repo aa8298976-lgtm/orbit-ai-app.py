@@ -1,4 +1,5 @@
 from core.planner import create_plan
+from core.tool_executor import ToolExecutor
 from tools.registry import ToolRegistry
 from tools.basic import calculator, text_analyzer
 
@@ -22,6 +23,8 @@ class OrbitAgent:
             text_analyzer
         )
 
+        self.executor = ToolExecutor(self.tools)
+
     def run(self, goal):
         print(f"{self.name} received goal:")
         print(goal)
@@ -33,6 +36,12 @@ class OrbitAgent:
             "plan": plan,
             "available_tools": self.tools.list_tools()
         }
+
+    def use_tool(self, tool_name, **kwargs):
+        return self.executor.execute(
+            tool_name,
+            **kwargs
+        )
 
 
 def run_agent(goal):
