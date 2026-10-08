@@ -3,7 +3,7 @@ from core.agent import OrbitAgent
 
 agent = OrbitAgent()
 
-print("=== ORBIT TOOL TEST ===")
+print("=== ORBIT SYSTEM TEST ===")
 
 print("\nAvailable tools:")
 print(agent.tools.list_tools())
@@ -23,3 +23,11 @@ print(
         text="ORBIT is an open world AI."
     )
 )
+
+print("\nMemory test:")
+
+agent.run(
+    "Build a system that can research information and create useful plans."
+)
+
+print(agent.get_memory())
