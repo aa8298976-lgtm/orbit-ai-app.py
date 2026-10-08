@@ -2,6 +2,7 @@ from core.planner import create_plan
 from core.tool_executor import ToolExecutor
 from tools.registry import ToolRegistry
 from tools.basic import calculator, text_analyzer
+from memory.memory_store import MemoryStore
 
 
 class OrbitAgent:
@@ -25,9 +26,16 @@ class OrbitAgent:
 
         self.executor = ToolExecutor(self.tools)
 
+        self.memory = MemoryStore()
+
     def run(self, goal):
         print(f"{self.name} received goal:")
         print(goal)
+
+        self.memory.add(
+            goal,
+            memory_type="user_goal"
+        )
 
         plan = create_plan(goal)
 
@@ -42,6 +50,9 @@ class OrbitAgent:
             tool_name,
             **kwargs
         )
+
+    def get_memory(self):
+        return self.memory.get_all()
 
 
 def run_agent(goal):
