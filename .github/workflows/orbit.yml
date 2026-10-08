@@ -22,7 +22,9 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Test ORBIT
-        working-directory: orbit-ai
-        run: |
-          python test_tools.py
+     - name: Test ORBIT
+  working-directory: orbit-ai
+  env:
+    PYTHONPATH: .
+  run: |
+    python test_tools.py
