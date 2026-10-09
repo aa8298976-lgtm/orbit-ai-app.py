@@ -1,7 +1,7 @@
 
 import streamlit as st
 
-from core.planner import create_plan
+from orbit_ai.core.planner import create_plan
 from core.agent import OrbitAgent
 
 
