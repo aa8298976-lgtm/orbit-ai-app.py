@@ -1,15 +1,16 @@
+
 from core.agent import OrbitAgent
 
 
 def main():
-    print("=== ORBIT SYSTEM TEST ===")
+    print("=== ORBIT OFFLINE TOOLS TEST ===")
 
     agent = OrbitAgent()
 
-    print("\nAvailable tools:")
+    print("\n1. Available tools:")
     print(agent.tools.list_tools())
 
-    print("\nCalculator test:")
+    print("\n2. Calculator:")
     print(
         agent.use_tool(
             "calculator",
@@ -17,7 +18,7 @@ def main():
         )
     )
 
-    print("\nText analyzer test:")
+    print("\n3. Text analyzer:")
     print(
         agent.use_tool(
             "text_analyzer",
@@ -25,14 +26,14 @@ def main():
         )
     )
 
-    print("\nMemory test:")
-
+    print("\n4. Memory:")
     agent.memory.add(
-        "ORBIT system test completed.",
+        "Offline tools test completed.",
         memory_type="system_test"
     )
-
     print(agent.get_memory())
+
+    print("\n=== TEST FINISHED ===")
 
 
 if __name__ == "__main__":
