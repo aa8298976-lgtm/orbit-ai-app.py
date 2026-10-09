@@ -1,5 +1,6 @@
 
-from core.brain import ask_orbit
+
+import re
 
 
 def create_plan(goal):
@@ -10,43 +11,79 @@ def create_plan(goal):
             "mode": "offline",
             "goal": "",
             "steps": [],
-            "message": "Please provide a goal."
+            "message": "ابتدا یک هدف وارد کن."
         }
 
-    # Try the AI planner first.
-    result = ask_orbit(
-        f"""
-Create a practical plan for this goal:
-{goal}
+    text = goal.lower()
+    steps = []
 
-Return:
-1. Goal
-2. Numbered steps
-3. Required tools
-4. Risks
-5. Success criteria
-"""
-    )
+    # دسته‌بندی هدف
+    if any(word in text for word in [
+        "crypto", "کریپتو", "ارز دیجیتال",
+        "سولانا", "solana", "توکن", "نهنگ"
+    ]):
+        category = "crypto"
+        steps = [
+            "هدف تحلیل را مشخص کن: توکن، کیف پول یا بازار.",
+            "آدرس توکن یا کیف پول و شبکه موردنظر را وارد کن.",
+            "داده‌های قیمت، حجم معاملات و تراکنش‌ها را جمع‌آوری کن.",
+            "ریسک نقدشوندگی، تمرکز مالکیت و نوسان را بررسی کن.",
+            "نتیجه را همراه با محدودیت داده‌ها و ریسک‌ها ثبت کن."
+        ]
 
-    # If the AI service is unavailable, use a basic offline plan.
-    if result.startswith("ORBIT is running") or result.startswith(
-        "ORBIT could not"
-    ):
-        return {
-            "mode": "offline",
-            "goal": goal,
-            "steps": [
-                f"Understand the goal: {goal}",
-                "Break the goal into smaller tasks.",
-                "Identify the tools and information required.",
-                "Execute each task and record the results.",
-                "Review the results and identify what remains."
-            ],
-            "message": "Offline plan created. Steps are generic and may need customization."
-        }
+    elif any(word in text for word in [
+        "learn", "study", "یادگیری", "آموزش",
+        "درس", "برنامه‌نویسی", "زبان"
+    ]):
+        category = "learning"
+        steps = [
+            "سطح فعلی و نتیجه مورد انتظار را مشخص کن.",
+            "موضوع را به بخش‌های کوچک تقسیم کن.",
+            "برای هر روز زمان مطالعه تعیین کن.",
+            "پس از هر بخش تمرین عملی انجام بده.",
+            "پیشرفت هفتگی را ارزیابی و برنامه را اصلاح کن."
+        ]
+
+    elif any(word in text for word in [
+        "business", "کسب‌وکار", "فروش", "درآمد",
+        "بازاریابی", "مشتری"
+    ]):
+        category = "business"
+        steps = [
+            "هدف و مشتری موردنظر را تعریف کن.",
+            "منابع، زمان و بودجه موجود را مشخص کن.",
+            "سه اقدام مهم و قابل اندازه‌گیری انتخاب کن.",
+            "اقدام‌ها را به ترتیب اولویت اجرا کن.",
+            "نتایج را با شاخص‌های مشخص ارزیابی کن."
+        ]
+
+    else:
+        category = "general"
+        steps = [
+            "نتیجه دقیق و قابل اندازه‌گیری را تعریف کن.",
+            "اطلاعات و منابع موردنیاز را فهرست کن.",
+            "هدف را به کارهای کوچک و اجرایی تقسیم کن.",
+            "کارها را بر اساس اهمیت مرتب کن.",
+            "پیشرفت را بررسی و مراحل را اصلاح کن."
+        ]
+
+    # استخراج مدت‌زمان احتمالی از متن
+    duration = None
+    match = re.search(r"(\d+)\s*(روز|هفته|ماه|day|days|week|weeks|month|months)", text)
+
+    if match:
+        duration = f"{match.group(1)} {match.group(2)}"
 
     return {
-        "mode": "ai",
+        "mode": "offline",
         "goal": goal,
-        "plan": result
+        "category": category,
+        "duration": duration,
+        "steps": steps,
+        "message": (
+            "برنامه به‌صورت آفلاین تولید شد. "
+            "این نسخه از الگوهای داخلی استفاده می‌کند؛ "
+            "داده زنده یا مدل آنلاین در این خروجی استفاده نشده است."
+        )
     }
+
