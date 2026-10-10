@@ -4,6 +4,7 @@
 
 
 
+
 import os
 import json
 import sqlite3
@@ -15,9 +16,9 @@ from datetime import datetime
 import streamlit as st
 
 
-# =========================
-# ORBIT AI — Configuration
-# =========================
+# =========================================================
+# ORBIT AI | Configuration
+# =========================================================
 APP_TITLE = "ORBIT AI"
 DB_PATH = os.environ.get("ORBIT_DB_PATH", "orbit_memory.db")
 DEFAULT_MODEL = "openrouter/free"
@@ -27,52 +28,30 @@ st.set_page_config(
     page_title=APP_TITLE,
     page_icon="🌌",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-
-# =========================
-# Persian Language Rules
-# =========================
 SYSTEM_PROMPT = """
-تو ORBIT AI هستی؛ یک دستیار هوش مصنوعی حرفه‌ای، دقیق و خوش‌بیان.
+تو ORBIT AI هستی؛ یک دستیار هوش مصنوعی حرفه‌ای و خوش‌بیان.
 
-قوانین اصلی پاسخ‌گویی:
-
-۱. زبان پیش‌فرض تو فارسی معیار، روان و طبیعی است.
-۲. جمله‌ها را با دستور زبان صحیح و ترتیب طبیعی کلمات فارسی بنویس.
-۳. فارسی و انگلیسی را بی‌دلیل در یک جمله ترکیب نکن.
-۴. اگر واژه یا اصطلاح فارسی مناسبی وجود دارد، از آن استفاده کن.
-۵. اصطلاح تخصصی انگلیسی را فقط در صورت نیاز بیاور و در اولین کاربرد،
-معادل یا توضیح فارسی آن را ارائه بده.
-۶. نام مدل‌ها، نام سرویس‌ها، کدها، نام متغیرها و پیام‌های فنی را تغییر نده.
-۷. از ترجمه تحت‌اللفظی عبارت‌های انگلیسی به فارسی خودداری کن.
-۸. پاراگراف‌ها را کوتاه، روشن و خوانا بنویس.
-۹. برای مراحل از شماره‌گذاری و برای موارد مرتبط از فهرست استفاده کن.
-۱۰. نشانه‌گذاری، فاصله‌گذاری و نیم‌فاصله را درست رعایت کن.
-۱۱. از تکرار، جمله‌های ناقص، عبارت‌های نامأنوس و مقدمه‌های غیرضروری پرهیز کن.
-۱۲. اگر کاربر راهنمایی مرحله‌به‌مرحله می‌خواهد، هر مرحله را واضح توضیح بده.
-۱۳. اگر پاسخ شامل کد است، کد را در بلوک جداگانه قرار بده و توضیحات را فارسی بنویس.
-۱۴. اگر اطلاعات کافی نداری، صادقانه بیان کن و چیزی را حدس نزن.
-۱۵. اگر کاربر صریحاً زبان دیگری خواست، به همان زبان پاسخ بده.
-۱۶. پیش از ارسال، پاسخ را از نظر دستور زبان، روانی و یکپارچگی زبانی بررسی کن.
-
-قواعد استفاده از حافظه:
-- یادداشت‌های ارائه‌شده را فقط زمانی استفاده کن که به درخواست فعلی مرتبط باشند.
-- یادداشت‌ها را واقعیت قطعی فرض نکن؛ در صورت ابهام سؤال بپرس.
-- اطلاعات جدید را بدون اجازه کاربر به‌عنوان یادداشت دائمی ثبت نکن.
-
-لحن پاسخ‌ها باید طبیعی، محترمانه، مفید و متناسب با درخواست کاربر باشد.
+- زبان پیش‌فرض پاسخ‌ها فارسی معیار، روان و طبیعی است.
+- بی‌دلیل فارسی و انگلیسی را ترکیب نکن.
+- متن‌ها را خوانا، منظم و با پاراگراف‌های کوتاه بنویس.
+- برای مراحل از شماره‌گذاری استفاده کن.
+- نام سرویس‌ها، مدل‌ها و کدها را تغییر نده.
+- اگر اطلاعات کافی نداری، صادقانه بیان کن.
+- یادداشت‌های حافظه را فقط در صورت مرتبط بودن به کار ببر.
+- اگر کاربر زبان دیگری خواست، به همان زبان پاسخ بده.
 """
 
 
-# =========================
+# =========================================================
 # Database
-# =========================
+# =========================================================
 @contextmanager
 def database():
     conn = sqlite3.connect(DB_PATH, timeout=20)
     conn.row_factory = sqlite3.Row
-
     try:
         conn.execute("PRAGMA foreign_keys = ON")
         yield conn
@@ -82,6 +61,10 @@ def database():
         raise
     finally:
         conn.close()
+
+
+def timestamp():
+    return datetime.now().isoformat(timespec="seconds")
 
 
 def init_db():
@@ -130,10 +113,7 @@ def init_db():
         if count == 0:
             db.execute(
                 "INSERT INTO projects(name, created_at) VALUES (?, ?)",
-                (
-                    "پروژه اصلی ORBIT",
-                    datetime.now().isoformat(timespec="seconds"),
-                ),
+                ("پروژه اصلی ORBIT", timestamp()),
             )
 
 
@@ -142,32 +122,32 @@ def fetch_all(sql, params=()):
         return db.execute(sql, params).fetchall()
 
 
+def fetch_one(sql, params=()):
+    with database() as db:
+        return db.execute(sql, params).fetchone()
+
+
 def execute(sql, params=()):
     with database() as db:
         cursor = db.execute(sql, params)
         return cursor.lastrowid
 
 
-def timestamp():
-    return datetime.now().isoformat(timespec="seconds")
-
-
 init_db()
 
 
-# =========================
-# Secrets
-# =========================
+# =========================================================
+# API configuration
+# =========================================================
 def get_setting(name, default=""):
     try:
         value = st.secrets.get(name, default)
-
-        if value is not None:
+        if value is not None and str(value).strip():
             return str(value).strip()
     except Exception:
         pass
 
-    return os.environ.get(name, default).strip()
+    return str(os.environ.get(name, default)).strip()
 
 
 def get_api_config():
@@ -180,27 +160,15 @@ def get_api_config():
     return api_key, model or DEFAULT_MODEL
 
 
-# =========================
-# OpenRouter Connection
-# =========================
 def ask_openrouter(messages):
     api_key, model = get_api_config()
 
     if not api_key:
         return None, (
-            "کلید OPENROUTER_API_KEY پیدا نشد. "
-            "تنظیمات Secrets را در Streamlit Cloud بررسی کن."
+            "کلید OPENROUTER_API_KEY تنظیم نشده است. "
+            "تنظیمات Secrets را بررسی کن."
         )
 
-    if api_key.lower() in {
-        "your-api-key",
-        "your_key",
-        "کلید واقعی خودت",
-    }:
-        return None, "مقدار کلید API نمونه است، نه کلید واقعی."
-
-    # تمام درخواست‌ها از یک دستورالعمل زبانی ثابت پیروی می‌کنند.
-    # دستورالعمل اختصاصی هر بخش نیز حفظ می‌شود.
     system_parts = [SYSTEM_PROMPT]
     conversation = []
 
@@ -216,12 +184,10 @@ def ask_openrouter(messages):
                 "content": content,
             })
 
-    api_messages = [
-        {
-            "role": "system",
-            "content": "\n\n".join(system_parts),
-        }
-    ] + conversation
+    api_messages = [{
+        "role": "system",
+        "content": "\n\n".join(system_parts),
+    }] + conversation
 
     payload = {
         "model": model,
@@ -229,14 +195,11 @@ def ask_openrouter(messages):
         "temperature": 0.5,
     }
 
-    request_data = json.dumps(
-        payload,
-        ensure_ascii=False,
-    ).encode("utf-8")
-
     request = urllib.request.Request(
         API_URL,
-        data=request_data,
+        data=json.dumps(
+            payload, ensure_ascii=False
+        ).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -246,253 +209,581 @@ def ask_openrouter(messages):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            raw = response.read().decode(
-                "utf-8",
-                errors="replace",
+        with urllib.request.urlopen(
+            request, timeout=60
+        ) as response:
+            data = json.loads(
+                response.read().decode(
+                    "utf-8", errors="replace"
+                )
             )
-            data = json.loads(raw)
 
         choices = data.get("choices", [])
-
         if not choices:
-            return None, "سرویس هوش مصنوعی پاسخ قابل‌استفاده‌ای برنگرداند."
+            return None, "سرویس پاسخ قابل‌استفاده‌ای برنگرداند."
 
-        message = choices[0].get("message", {})
-        content = message.get("content", "")
+        content = choices[0].get(
+            "message", {}
+        ).get("content", "")
 
         if isinstance(content, list):
-            parts = []
-
-            for item in content:
-                if isinstance(item, dict):
-                    if item.get("type") == "text":
-                        parts.append(item.get("text", ""))
-                elif isinstance(item, str):
-                    parts.append(item)
-
-            content = "\n".join(parts)
-
-        if not content or not str(content).strip():
-            return None, (
-                "مدل پاسخ متنی برنگرداند. "
-                "ممکن است مدل انتخاب‌شده محدودیت داشته باشد."
+            content = "\n".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict)
+                and part.get("type") == "text"
             )
+
+        if not str(content).strip():
+            return None, "پاسخ متنی دریافت نشد."
 
         return str(content).strip(), None
 
     except urllib.error.HTTPError as exc:
         body = exc.read().decode(
-            "utf-8",
-            errors="replace",
+            "utf-8", errors="replace"
         )
-
         try:
             parsed = json.loads(body)
-            details = parsed.get("error", {}).get("message", body)
-            code = parsed.get("error", {}).get("code", exc.code)
+            error = parsed.get("error", {})
+            detail = error.get("message", body)
+            code = error.get("code", exc.code)
         except Exception:
-            details = body or str(exc)
-            code = exc.code
+            detail, code = body or str(exc), exc.code
 
         return None, (
-            f"HTTP {exc.code} | کد خطا: {code}\n"
-            f"مدل انتخاب‌شده: {model}\n"
-            f"توضیحات سرویس: {str(details)[:1600]}"
+            f"HTTP {exc.code} | کد: {code}\n"
+            f"مدل: {model}\n{str(detail)[:1200]}"
         )
 
     except urllib.error.URLError as exc:
-        return None, (
-            "اتصال شبکه به OpenRouter برقرار نشد.\n"
-            f"جزئیات: {exc.reason}"
-        )
-
-    except TimeoutError:
-        return None, "مهلت اتصال تمام شد. دوباره تلاش کن."
+        return None, f"خطای اتصال: {exc.reason}"
 
     except Exception as exc:
         return None, (
-            f"خطای غیرمنتظره: {type(exc).__name__}: "
-            f"{str(exc)[:1000]}"
+            f"خطای {type(exc).__name__}: {str(exc)[:800]}"
         )
 
 
-# =========================
-# Offline Mode
-# =========================
 def offline_answer(prompt):
-    text = prompt.strip()
-    lower = text.lower()
-
-    if any(word in lower for word in [
+    if any(word in prompt.lower() for word in [
         "سلام", "درود", "hello", "hi"
     ]):
         return (
             "سلام! به ORBIT AI خوش آمدی. 🌌\n\n"
-            "در حال حاضر پاسخ آفلاین ارائه می‌دهم. "
-            "برای بررسی اتصال آنلاین، بخش «اتصال» را باز کن."
-        )
-
-    if any(word in lower for word in [
-        "برنامه", "هدف", "plan"
-    ]):
-        return (
-            "برای برنامه‌ریزی بهتر، این مراحل را دنبال کن:\n\n"
-            "۱. هدف اصلی خودت را مشخص کن.\n"
-            "۲. هدف را به چند کار کوچک تقسیم کن.\n"
-            "۳. برای هر کار زمان مشخصی در نظر بگیر.\n"
-            "۴. در پایان هفته، میزان پیشرفت را بررسی کن.\n\n"
-            "این پاسخ پایه در حالت آفلاین تولید شده است."
+            "در حال حاضر پاسخ آفلاین ارائه می‌شود."
         )
 
     return (
-        "در حال حاضر حالت آفلاین فعال است.\n\n"
-        "برای دریافت پاسخ هوشمند آنلاین، بخش «اتصال» را باز کن "
-        "و خطای سرویس را بررسی کن."
+        "در حال حاضر پاسخ آنلاین دریافت نشد.\n\n"
+        "بخش «اتصال و تنظیمات» را باز کن و وضعیت OpenRouter "
+        "را بررسی کن."
     )
 
 
-# =========================
-# User Interface
-# =========================
+# =========================================================
+# Modern responsive design
+# =========================================================
 st.markdown("""
 <style>
-.block-container {
-    max-width: 1150px;
-    padding-top: 1.5rem;
+:root {
+    color-scheme: dark;
 }
+
 .stApp {
-    direction: rtl;
+    background:
+        radial-gradient(ellipse at 8% 0%,
+            rgba(88, 70, 190, .19), transparent 34%),
+        radial-gradient(ellipse at 95% 18%,
+            rgba(27, 133, 190, .12), transparent 30%),
+        #0b0d16;
+    color: #edf0ff;
 }
+
+.block-container {
+    max-width: 1440px;
+    padding: 2rem clamp(1rem, 3vw, 3rem) 3rem;
+}
+
+h1, h2, h3, h4, p, label, li {
+    text-align: right;
+}
+
+h1 {
+    letter-spacing: -.5px;
+    font-weight: 800 !important;
+}
+
+h2, h3 {
+    font-weight: 700 !important;
+}
+
 [data-testid="stSidebar"] {
-    direction: rtl;
+    background: linear-gradient(
+        180deg, #111426 0%, #0e111d 100%
+    );
+    border-left: 1px solid rgba(160, 170, 255, .12);
+    border-right: 0;
 }
-[data-testid="stChatMessage"] {
+
+[data-testid="stSidebar"] * {
+    text-align: right;
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+    color: #b9c1de;
+}
+
+.orbit-hero {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(1.5rem, 4vw, 3rem);
+    margin: .4rem 0 1.5rem;
+    border: 1px solid rgba(154, 139, 255, .26);
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 12% 12%,
+            rgba(93, 90, 235, .28), transparent 40%),
+        linear-gradient(125deg,
+            rgba(31, 35, 65, .98),
+            rgba(15, 22, 39, .98));
+    box-shadow: 0 20px 70px rgba(0, 0, 0, .2);
     direction: rtl;
     text-align: right;
 }
-textarea, input {
+
+.orbit-kicker {
+    display: inline-block;
+    padding: 6px 11px;
+    margin-bottom: 14px;
+    border: 1px solid rgba(155, 144, 255, .35);
+    border-radius: 100px;
+    color: #c6c0ff;
+    background: rgba(116, 103, 245, .12);
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.orbit-hero h1 {
+    margin: 0 0 12px;
+    font-size: clamp(2rem, 5vw, 3.3rem);
+    line-height: 1.3;
+    background: linear-gradient(90deg, #fff, #bcb8ff, #89dcff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.orbit-hero p {
+    max-width: 700px;
+    color: #c0c8e1;
+    line-height: 1.9;
+    margin-bottom: 0;
+}
+
+.orbit-section {
+    padding: 1.2rem 1.35rem;
+    margin: 1rem 0;
+    border: 1px solid rgba(153, 166, 218, .15);
+    border-radius: 20px;
+    background: linear-gradient(
+        145deg,
+        rgba(25, 29, 49, .88),
+        rgba(17, 20, 34, .92)
+    );
+}
+
+.orbit-section h3 {
+    margin-top: 0;
+}
+
+.orbit-muted {
+    color: #a6b0cf;
+    font-size: .9rem;
+    line-height: 1.8;
+}
+
+.orbit-chip {
+    display: inline-block;
+    padding: 7px 12px;
+    border-radius: 100px;
+    background: rgba(111, 100, 239, .14);
+    border: 1px solid rgba(142, 132, 255, .2);
+    color: #c9c4ff;
+    font-size: .82rem;
+    margin: 3px;
+}
+
+div[data-testid="stMetric"] {
+    background: rgba(26, 31, 53, .85);
+    border: 1px solid rgba(147, 161, 219, .15);
+    padding: 16px;
+    border-radius: 18px;
+}
+
+div[data-testid="stMetricLabel"] {
+    color: #b2bddb;
+}
+
+div[data-testid="stMetricValue"] {
+    color: #f0efff;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: rgba(145, 158, 214, .18) !important;
+    border-radius: 18px !important;
+    background: rgba(22, 26, 44, .62);
+}
+
+div[data-testid="stChatMessage"] {
+    border: 1px solid rgba(140, 153, 210, .13);
+    border-radius: 18px;
+    background: rgba(24, 28, 47, .75);
     direction: rtl;
     text-align: right;
+}
+
+div[data-testid="stChatMessage"] p {
+    line-height: 1.95;
+}
+
+.stTextInput input,
+.stTextArea textarea,
+[data-baseweb="select"] > div {
+    background-color: #14182a !important;
+    border-color: #343b5a !important;
+    border-radius: 12px !important;
+    color: #f0f2ff !important;
+    direction: rtl;
+    text-align: right;
+}
+
+.stButton > button,
+.stFormSubmitButton > button {
+    min-height: 43px;
+    border-radius: 12px;
+    border: 1px solid rgba(149, 137, 255, .3);
+    background: linear-gradient(
+        115deg, #5c52d9, #387fba
+    );
+    color: white;
+    font-weight: 650;
+    transition: all .18s ease;
+}
+
+.stButton > button:hover,
+.stFormSubmitButton > button:hover {
+    border-color: #aaa0ff;
+    color: white;
+    filter: brightness(1.12);
+}
+
+div[data-testid="stRadio"] label,
+div[data-testid="stCheckbox"] label {
+    direction: rtl;
+}
+
+hr {
+    border-color: rgba(143, 155, 208, .16);
+}
+
+[data-testid="stCaptionContainer"] {
+    color: #929dbc;
+}
+
+@media (max-width: 768px) {
+    .block-container {
+        padding: 1rem .85rem 2rem;
+    }
+
+    .orbit-hero {
+        padding: 1.35rem 1.1rem;
+        border-radius: 20px;
+        margin-top: .2rem;
+    }
+
+    .orbit-hero h1 {
+        font-size: 2rem;
+    }
+
+    .orbit-section {
+        padding: 1rem;
+        border-radius: 16px;
+    }
+
+    div[data-testid="stMetric"] {
+        padding: 10px;
+    }
+
+    div[data-testid="stMetricValue"] {
+        font-size: 1.35rem;
+    }
+
+    [data-testid="stChatMessage"] {
+        padding: .7rem;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🌌 ORBIT AI")
-st.caption(
-    "دستیار شخصی برای گفت‌وگو، مدیریت پروژه، حافظه و برنامه‌ریزی"
-)
 
-api_key, selected_model = get_api_config()
+def section_heading(title, subtitle=None):
+    st.markdown(f"## {title}")
+    if subtitle:
+        st.markdown(
+            f'<p class="orbit-muted">{subtitle}</p>',
+            unsafe_allow_html=True,
+        )
 
+
+def save_message(project_id, role, content):
+    execute(
+        """INSERT INTO messages
+           (project_id, role, content, created_at)
+           VALUES (?, ?, ?, ?)""",
+        (project_id, role, content, timestamp()),
+    )
+
+
+# =========================================================
+# Sidebar and projects
+# =========================================================
 with st.sidebar:
-    st.header("⚙️ وضعیت سیستم")
+    st.markdown("## 🌌 ORBIT AI")
+    st.caption("دستیار هوشمند شخصی")
+    st.divider()
+
+    api_key, selected_model = get_api_config()
 
     if api_key:
-        st.success("کلید API تنظیم شده است.")
+        st.success("اتصال: کلید تنظیم شده")
     else:
-        st.error("کلید API پیدا نشد.")
+        st.warning("کلید OpenRouter تنظیم نشده")
 
-    st.caption(f"مدل فعال: {selected_model}")
+    st.caption(f"مدل: {selected_model}")
+
     st.divider()
-    st.subheader("📁 پروژه‌ها")
+    st.markdown("### 🧭 فضای کاری")
+
+    pages = [
+        "🏠 خانه",
+        "💬 دستیار هوشمند",
+        "📋 برنامه‌ریز",
+        "📝 تحلیل متن",
+        "🧠 حافظه",
+        "📁 پروژه‌ها",
+        "🔧 اتصال و تنظیمات",
+    ]
+
+    if "orbit_page" not in st.session_state:
+        st.session_state.orbit_page = pages[0]
+
+    page = st.radio(
+        "انتخاب بخش",
+        pages,
+        key="orbit_page",
+        label_visibility="collapsed",
+    )
+
+    st.divider()
+    st.markdown("### 📁 پروژهٔ فعال")
 
     projects = fetch_all(
         "SELECT * FROM projects ORDER BY id DESC"
     )
 
     project_map = {
-        row["name"]: row["id"]
-        for row in projects
+        row["name"]: row["id"] for row in projects
     }
 
     if not project_map:
-        st.error("پروژه‌ای پیدا نشد.")
+        st.error("پروژه‌ای وجود ندارد.")
         st.stop()
 
-    project_name = st.selectbox(
-        "پروژهٔ فعال",
-        list(project_map.keys()),
+    project_names = list(project_map.keys())
+
+    if (
+        "orbit_project_name" not in st.session_state
+        or st.session_state.orbit_project_name not in project_map
+    ):
+        st.session_state.orbit_project_name = project_names[0]
+
+    active_name = st.selectbox(
+        "پروژه",
+        project_names,
+        key="orbit_project_name",
+        label_visibility="collapsed",
     )
-    project_id = project_map[project_name]
+    project_id = project_map[active_name]
 
     with st.expander("➕ ساخت پروژه"):
-        with st.form("create_project_form", clear_on_submit=True):
-            new_project = st.text_input("نام پروژه")
-            create_clicked = st.form_submit_button("ایجاد پروژه")
+        with st.form("sidebar_create_project", clear_on_submit=True):
+            new_name = st.text_input("نام پروژه")
+            create_project = st.form_submit_button(
+                "ایجاد پروژه", use_container_width=True
+            )
 
-        if create_clicked:
-            if new_project.strip():
+        if create_project:
+            name = new_name.strip()
+            if name:
                 execute(
-                    "INSERT INTO projects(name, created_at) VALUES (?, ?)",
-                    (new_project.strip(), timestamp()),
+                    """INSERT INTO projects(name, created_at)
+                       VALUES (?, ?)""",
+                    (name, timestamp()),
                 )
+                st.session_state.orbit_project_name = name
                 st.rerun()
             else:
                 st.warning("نام پروژه را وارد کن.")
 
     st.divider()
-    st.caption("ORBIT AI · اتصال به OpenRouter")
+    st.caption("طراحی واکنش‌گرا · نسخهٔ وب")
 
 
-chat_tab, planner_tab, analysis_tab, memory_tab, settings_tab = st.tabs(
-    [
-        "💬 گفت‌وگو",
-        "📋 برنامه‌ریز",
-        "📝 تحلیل متن",
-        "🧠 حافظه",
-        "🔧 اتصال",
+# =========================================================
+# Home
+# =========================================================
+if page == "🏠 خانه":
+    st.markdown("""
+    <div class="orbit-hero">
+        <div class="orbit-kicker">YOUR PERSONAL AI WORKSPACE</div>
+        <h1>به ORBIT AI خوش آمدی 🌌</h1>
+        <p>
+            یک فضای یکپارچه برای گفت‌وگو با هوش مصنوعی،
+            مدیریت پروژه‌ها، برنامه‌ریزی اهداف و سازمان‌دهی یادداشت‌ها.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    all_projects = fetch_all("SELECT id FROM projects")
+    total_tasks = fetch_one(
+        "SELECT COUNT(*) FROM tasks WHERE project_id = ?",
+        (project_id,),
+    )[0]
+    total_notes = fetch_one(
+        "SELECT COUNT(*) FROM notes WHERE project_id = ?",
+        (project_id,),
+    )[0]
+    total_messages = fetch_one(
+        "SELECT COUNT(*) FROM messages WHERE project_id = ?",
+        (project_id,),
+    )[0]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("پروژه‌ها", len(all_projects))
+    c2.metric("کارهای این پروژه", total_tasks)
+    c3.metric("یادداشت‌های این پروژه", total_notes)
+
+    st.markdown("")
+    section_heading(
+        "فضای کاری تو",
+        "برای شروع، یکی از بخش‌های زیر را انتخاب کن.",
+    )
+
+    cards = [
+        ("💬", "دستیار هوشمند",
+         "گفت‌وگو با هوش مصنوعی و مشاهدهٔ تاریخچه.",
+         "💬 دستیار هوشمند"),
+        ("📋", "برنامه‌ریز",
+         "ثبت کارها، پیگیری و علامت‌گذاری انجام‌شده‌ها.",
+         "📋 برنامه‌ریز"),
+        ("📝", "تحلیل متن",
+         "اصلاح نگارش، خلاصه‌سازی، بازنویسی و ترجمه.",
+         "📝 تحلیل متن"),
+        ("🧠", "حافظه",
+         "ذخیرهٔ یادداشت‌های مرتبط با پروژه.",
+         "🧠 حافظه"),
+        ("📁", "پروژه‌ها",
+         "انتخاب پروژه و ساخت فضای کاری جدید.",
+         "📁 پروژه‌ها"),
+        ("🔧", "اتصال",
+         "بررسی تنظیمات و آزمایش اتصال هوش مصنوعی.",
+         "🔧 اتصال و تنظیمات"),
     ]
-)
+
+    for start in range(0, len(cards), 3):
+        cols = st.columns(3)
+        for col, item in zip(cols, cards[start:start + 3]):
+            emoji, title, description, target = item
+            with col:
+                with st.container(border=True):
+                    st.markdown(f"### {emoji} {title}")
+                    st.markdown(
+                        f'<p class="orbit-muted">{description}</p>',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button(
+                        "ورود به بخش ←",
+                        key=f"home_{title}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.orbit_page = target
+                        st.rerun()
+
+    st.markdown("")
+    st.caption(
+        f"پروژهٔ فعال: {active_name} · "
+        f"پیام‌های ذخیره‌شده: {total_messages}"
+    )
 
 
-# =========================
+# =========================================================
 # Chat
-# =========================
-with chat_tab:
-    st.subheader(f"گفت‌وگو: {project_name}")
+# =========================================================
+elif page == "💬 دستیار هوشمند":
+    section_heading(
+        "💬 دستیار هوشمند",
+        f"گفت‌وگو در فضای کاری «{active_name}»",
+    )
+
+    left, right = st.columns([3, 1])
+    with left:
+        st.markdown(
+            '<span class="orbit-chip">پاسخ فارسی</span>'
+            '<span class="orbit-chip">حافظهٔ پروژه</span>'
+            '<span class="orbit-chip">OpenRouter</span>',
+            unsafe_allow_html=True,
+        )
+    with right:
+        if st.button("🗑️ پاک‌کردن گفت‌وگو", use_container_width=True):
+            execute(
+                "DELETE FROM messages WHERE project_id = ?",
+                (project_id,),
+            )
+            st.rerun()
 
     history = fetch_all(
         """SELECT role, content FROM messages
-           WHERE project_id = ?
-           ORDER BY id ASC""",
+           WHERE project_id = ? ORDER BY id ASC""",
         (project_id,),
     )
+
+    if not history:
+        with st.container(border=True):
+            st.markdown("### ✨ از کجا شروع کنیم؟")
+            st.write(
+                "سؤالت را در کادر پایین بنویس. می‌توانی دربارهٔ "
+                "یادگیری، برنامه‌ریزی، نوشتن یا ایده‌پردازی کمک بگیری."
+            )
 
     for item in history:
         if item["role"] not in ("user", "assistant"):
             continue
-
         with st.chat_message(item["role"]):
             st.markdown(item["content"])
-
-    if st.button("🗑️ پاک‌کردن تاریخچهٔ گفت‌وگو"):
-        execute(
-            "DELETE FROM messages WHERE project_id = ?",
-            (project_id,),
-        )
-        st.rerun()
 
     prompt = st.chat_input("پیامت را اینجا بنویس...")
 
     if prompt:
-        execute(
-            """INSERT INTO messages(project_id, role, content, created_at)
-               VALUES (?, ?, ?, ?)""",
-            (project_id, "user", prompt, timestamp()),
-        )
+        save_message(project_id, "user", prompt)
 
         notes = fetch_all(
-            """SELECT content FROM notes
-               WHERE project_id = ?
+            """SELECT content FROM notes WHERE project_id = ?
                ORDER BY id DESC LIMIT 10""",
             (project_id,),
         )
-
         memory_text = "\n".join(
-            "- " + row["content"]
-            for row in notes
-        ) or "یادداشت ذخیره‌شده‌ای وجود ندارد."
+            "- " + row["content"] for row in notes
+        ) or "یادداشتی ذخیره نشده است."
 
         recent = fetch_all(
             """SELECT role, content FROM messages
@@ -502,24 +793,17 @@ with chat_tab:
         )
         recent = list(reversed(recent))
 
-        api_messages = [
-            {
-                "role": "system",
-                "content": (
-                    f"نام پروژه: {project_name}\n\n"
-                    "یادداشت‌های ذخیره‌شده برای این پروژه:\n"
-                    f"{memory_text}\n\n"
-                    "از یادداشت‌ها فقط در صورت مرتبط بودن با درخواست فعلی "
-                    "استفاده کن. اگر یادداشتی ارتباطی ندارد، آن را نادیده بگیر."
-                ),
-            }
-        ]
+        api_messages = [{
+            "role": "system",
+            "content": (
+                f"پروژهٔ فعال: {active_name}\n"
+                f"یادداشت‌های مرتبط:\n{memory_text}\n"
+                "یادداشت‌ها را فقط در صورت ارتباط با درخواست استفاده کن."
+            ),
+        }]
 
         api_messages.extend(
-            {
-                "role": row["role"],
-                "content": row["content"],
-            }
+            {"role": row["role"], "content": row["content"]}
             for row in recent
             if row["role"] in ("user", "assistant")
         )
@@ -529,253 +813,410 @@ with chat_tab:
 
         if answer is None:
             st.error("پاسخ آنلاین دریافت نشد.")
-            st.code(
-                error or "علت خطا مشخص نیست.",
-                language="text",
-            )
+            st.code(error or "علت خطا مشخص نیست.")
             answer = offline_answer(prompt)
 
-        execute(
-            """INSERT INTO messages(project_id, role, content, created_at)
-               VALUES (?, ?, ?, ?)""",
-            (project_id, "assistant", answer, timestamp()),
-        )
-
+        save_message(project_id, "assistant", answer)
         st.rerun()
 
 
-# =========================
+# =========================================================
 # Planner
-# =========================
-with planner_tab:
-    st.subheader("📋 برنامه‌ریز اهداف")
-
-    with st.form("add_task_form", clear_on_submit=True):
-        task_text = st.text_input("عنوان کار جدید")
-        add_task_clicked = st.form_submit_button("افزودن کار")
-
-    if add_task_clicked:
-        if task_text.strip():
-            execute(
-                """INSERT INTO tasks(project_id, task, done, created_at)
-                   VALUES (?, ?, 0, ?)""",
-                (project_id, task_text.strip(), timestamp()),
-            )
-            st.rerun()
-        else:
-            st.warning("عنوان کار را وارد کن.")
+# =========================================================
+elif page == "📋 برنامه‌ریز":
+    section_heading(
+        "📋 برنامه‌ریز اهداف",
+        "کارهای پروژه را ثبت کن و پیشرفت خودت را دنبال کن.",
+    )
 
     tasks = fetch_all(
-        """SELECT * FROM tasks
-           WHERE project_id = ?
-           ORDER BY id DESC""",
+        "SELECT * FROM tasks WHERE project_id = ? ORDER BY id DESC",
         (project_id,),
     )
+    completed = sum(int(task["done"]) for task in tasks)
+    total = len(tasks)
 
-    if not tasks:
-        st.info("هنوز کاری ثبت نشده است.")
+    a, b, c = st.columns(3)
+    a.metric("کل کارها", total)
+    b.metric("انجام‌شده", completed)
+    c.metric("باقی‌مانده", total - completed)
 
-    for task in tasks:
-        col1, col2 = st.columns([5, 1])
+    if total:
+        st.progress(completed / total)
 
-        checked = col1.checkbox(
-            task["task"],
-            value=bool(task["done"]),
-            key=f"task_done_{task['id']}",
-        )
-
-        if int(checked) != int(task["done"]):
-            execute(
-                "UPDATE tasks SET done = ? WHERE id = ?",
-                (int(checked), task["id"]),
+    with st.container(border=True):
+        st.markdown("### ➕ افزودن کار جدید")
+        with st.form("add_task_form", clear_on_submit=True):
+            task_text = st.text_input(
+                "عنوان کار",
+                placeholder="مثلاً مطالعهٔ روزانه",
             )
-            st.rerun()
-
-        if col2.button("حذف", key=f"task_delete_{task['id']}"):
-            execute(
-                "DELETE FROM tasks WHERE id = ?",
-                (task["id"],),
+            add_task = st.form_submit_button(
+                "افزودن به برنامه",
+                use_container_width=True,
             )
-            st.rerun()
 
-
-# =========================
-# Text Analysis
-# =========================
-with analysis_tab:
-    st.subheader("📝 تحلیل و بازنویسی متن")
-
-    text_input = st.text_area(
-        "متن موردنظر را وارد کن",
-        height=220,
-        placeholder="متن را اینجا بنویس...",
-    )
-
-    analysis_kind = st.selectbox(
-        "نوع درخواست",
-        [
-            "اصلاح نگارش و روان‌سازی",
-            "خلاصه‌سازی",
-            "بازنویسی حرفه‌ای",
-            "استخراج نکات کلیدی",
-            "ترجمه به انگلیسی",
-            "ترجمه به فارسی",
-        ],
-    )
-
-    if st.button("شروع تحلیل"):
-        if not text_input.strip():
-            st.warning("ابتدا متن را وارد کن.")
-        else:
-            instructions = {
-                "اصلاح نگارش و روان‌سازی": (
-                    "متن را با حفظ معنا، از نظر دستور زبان و جمله‌بندی "
-                    "اصلاح کن. اگر متن فارسی است، فارسی روان و طبیعی "
-                    "تحویل بده. توضیح اضافه نده مگر لازم باشد."
-                ),
-                "خلاصه‌سازی": (
-                    "متن را دقیق و منظم خلاصه کن و نکات اصلی را حفظ کن."
-                ),
-                "بازنویسی حرفه‌ای": (
-                    "متن را حرفه‌ای، روشن و طبیعی بازنویسی کن. "
-                    "معنای اصلی را تغییر نده."
-                ),
-                "استخراج نکات کلیدی": (
-                    "نکات اصلی را به فارسی روان و در قالب فهرست مرتب ارائه کن."
-                ),
-                "ترجمه به انگلیسی": (
-                    "متن را به انگلیسی طبیعی و درست ترجمه کن. "
-                    "از ترجمه تحت‌اللفظی پرهیز کن."
-                ),
-                "ترجمه به فارسی": (
-                    "متن را به فارسی معیار، روان و طبیعی ترجمه کن."
-                ),
-            }
-
-            with st.spinner("در حال بررسی متن..."):
-                result, error = ask_openrouter([
-                    {
-                        "role": "system",
-                        "content": instructions[analysis_kind],
-                    },
-                    {
-                        "role": "user",
-                        "content": text_input,
-                    },
-                ])
-
-            if result:
-                st.markdown("### نتیجه")
-                st.markdown(result)
-            else:
-                st.error("تحلیل آنلاین انجام نشد.")
-                st.code(
-                    error or "علت خطا مشخص نیست.",
-                    language="text",
-                )
-
-
-# =========================
-# Memory
-# =========================
-with memory_tab:
-    st.subheader("🧠 حافظهٔ پروژه")
-
-    st.write(
-        "یادداشت‌های این بخش در گفت‌وگوهای بعدی همین پروژه "
-        "به‌عنوان اطلاعات کمکی در اختیار ORBIT AI قرار می‌گیرند."
-    )
-
-    with st.form("add_note_form", clear_on_submit=True):
-        note_text = st.text_area("یادداشت جدید")
-        save_note = st.form_submit_button("ذخیرهٔ یادداشت")
-
-    if save_note:
-        if note_text.strip():
-            execute(
-                """INSERT INTO notes(project_id, content, created_at)
-                   VALUES (?, ?, ?)""",
-                (project_id, note_text.strip(), timestamp()),
-            )
-            st.rerun()
-        else:
-            st.warning("متن یادداشت را وارد کن.")
-
-    notes = fetch_all(
-        """SELECT * FROM notes
-           WHERE project_id = ?
-           ORDER BY id DESC""",
-        (project_id,),
-    )
-
-    if not notes:
-        st.info("حافظهٔ این پروژه خالی است.")
-
-    for note in notes:
-        with st.container(border=True):
-            st.write(note["content"])
-            st.caption(f"زمان ثبت: {note['created_at']}")
-
-            if st.button(
-                "حذف یادداشت",
-                key=f"note_delete_{note['id']}",
-            ):
+        if add_task:
+            if task_text.strip():
                 execute(
-                    "DELETE FROM notes WHERE id = ?",
-                    (note["id"],),
+                    """INSERT INTO tasks
+                       (project_id, task, done, created_at)
+                       VALUES (?, ?, 0, ?)""",
+                    (project_id, task_text.strip(), timestamp()),
                 )
                 st.rerun()
+            else:
+                st.warning("عنوان کار را وارد کن.")
+
+    st.markdown("### فهرست کارها")
+
+    if not tasks:
+        st.info("هنوز کاری ثبت نکرده‌ای.")
+    else:
+        for task in tasks:
+            with st.container(border=True):
+                col1, col2 = st.columns([5, 1])
+                checked = col1.checkbox(
+                    task["task"],
+                    value=bool(task["done"]),
+                    key=f"task_{task['id']}",
+                )
+
+                if int(checked) != int(task["done"]):
+                    execute(
+                        "UPDATE tasks SET done = ? WHERE id = ?",
+                        (int(checked), task["id"]),
+                    )
+                    st.rerun()
+
+                if col2.button(
+                    "حذف",
+                    key=f"delete_task_{task['id']}",
+                    use_container_width=True,
+                ):
+                    execute(
+                        "DELETE FROM tasks WHERE id = ?",
+                        (task["id"],),
+                    )
+                    st.rerun()
+
+                st.caption(
+                    "انجام‌شده" if task["done"] else "در انتظار انجام"
+                )
 
 
-# =========================
-# Connection Diagnostics
-# =========================
-with settings_tab:
-    st.subheader("🔧 بررسی اتصال OpenRouter")
+# =========================================================
+# Text analysis
+# =========================================================
+elif page == "📝 تحلیل متن":
+    section_heading(
+        "📝 آزمایشگاه متن",
+        "متن را وارد کن و نوع پردازش موردنیازت را انتخاب کن.",
+    )
 
-    st.write(
-        "در این بخش می‌توانی وضعیت اتصال را آزمایش کنی. "
-        "کلید کامل API نمایش داده نمی‌شود."
+    with st.container(border=True):
+        text_input = st.text_area(
+            "متن موردنظر",
+            height=240,
+            placeholder="متن را اینجا وارد کن...",
+        )
+
+        analysis_kind = st.selectbox(
+            "نوع پردازش",
+            [
+                "اصلاح نگارش و روان‌سازی",
+                "خلاصه‌سازی",
+                "بازنویسی حرفه‌ای",
+                "استخراج نکات کلیدی",
+                "ترجمه به انگلیسی",
+                "ترجمه به فارسی",
+            ],
+        )
+
+        if st.button(
+            "✨ پردازش متن",
+            use_container_width=True,
+        ):
+            if not text_input.strip():
+                st.warning("ابتدا متن را وارد کن.")
+            else:
+                instructions = {
+                    "اصلاح نگارش و روان‌سازی":
+                        "متن را با حفظ معنا روان و درست کن.",
+                    "خلاصه‌سازی":
+                        "متن را دقیق و منظم خلاصه کن.",
+                    "بازنویسی حرفه‌ای":
+                        "متن را حرفه‌ای و طبیعی بازنویسی کن.",
+                    "استخراج نکات کلیدی":
+                        "نکات اصلی را به شکل فهرست ارائه کن.",
+                    "ترجمه به انگلیسی":
+                        "متن را به انگلیسی طبیعی ترجمه کن.",
+                    "ترجمه به فارسی":
+                        "متن را به فارسی معیار و طبیعی ترجمه کن.",
+                }
+
+                with st.spinner("در حال پردازش..."):
+                    result, error = ask_openrouter([
+                        {
+                            "role": "system",
+                            "content": instructions[analysis_kind],
+                        },
+                        {
+                            "role": "user",
+                            "content": text_input,
+                        },
+                    ])
+
+                if result:
+                    st.markdown("### نتیجه")
+                    with st.container(border=True):
+                        st.markdown(result)
+                        st.download_button(
+                            "دانلود نتیجهٔ متنی",
+                            data=result,
+                            file_name="orbit_result.txt",
+                            mime="text/plain",
+                            use_container_width=True,
+                        )
+                else:
+                    st.error("پردازش آنلاین انجام نشد.")
+                    st.code(error or "علت خطا مشخص نیست.")
+
+
+# =========================================================
+# Memory
+# =========================================================
+elif page == "🧠 حافظه":
+    section_heading(
+        "🧠 حافظهٔ پروژه",
+        "یادداشت‌هایی ذخیره کن که در گفت‌وگوهای مرتبط به کار بیایند.",
+    )
+
+    notes = fetch_all(
+        "SELECT * FROM notes WHERE project_id = ? ORDER BY id DESC",
+        (project_id,),
+    )
+    st.metric("یادداشت‌های ذخیره‌شده", len(notes))
+
+    with st.container(border=True):
+        st.markdown("### ✍️ یادداشت جدید")
+        with st.form("add_note_form", clear_on_submit=True):
+            note_text = st.text_area(
+                "متن یادداشت",
+                placeholder="اطلاعاتی که می‌خواهی برای این پروژه نگه داری...",
+            )
+            save_note = st.form_submit_button(
+                "ذخیرهٔ یادداشت",
+                use_container_width=True,
+            )
+
+        if save_note:
+            if note_text.strip():
+                execute(
+                    """INSERT INTO notes(project_id, content, created_at)
+                       VALUES (?, ?, ?)""",
+                    (project_id, note_text.strip(), timestamp()),
+                )
+                st.rerun()
+            else:
+                st.warning("متن یادداشت را وارد کن.")
+
+    st.markdown("### یادداشت‌های قبلی")
+
+    if not notes:
+        st.info("حافظهٔ این پروژه هنوز خالی است.")
+    else:
+        for note in notes:
+            with st.container(border=True):
+                st.write(note["content"])
+                st.caption(f"تاریخ ثبت: {note['created_at']}")
+
+                if st.button(
+                    "حذف یادداشت",
+                    key=f"delete_note_{note['id']}",
+                    use_container_width=True,
+                ):
+                    execute(
+                        "DELETE FROM notes WHERE id = ?",
+                        (note["id"],),
+                    )
+                    st.rerun()
+
+
+# =========================================================
+# Projects
+# =========================================================
+elif page == "📁 پروژه‌ها":
+    section_heading(
+        "📁 مدیریت پروژه‌ها",
+        "برای هر هدف، فضای کاری و حافظهٔ جداگانه داشته باش.",
+    )
+
+    projects = fetch_all(
+        "SELECT * FROM projects ORDER BY id DESC"
+    )
+
+    with st.container(border=True):
+        st.markdown("### ➕ ایجاد پروژه")
+        with st.form("project_page_form", clear_on_submit=True):
+            project_name_input = st.text_input(
+                "نام پروژهٔ جدید",
+                placeholder="مثلاً پروژهٔ بازاریابی",
+            )
+            submit_project = st.form_submit_button(
+                "ساخت پروژه",
+                use_container_width=True,
+            )
+
+        if submit_project:
+            name = project_name_input.strip()
+            if name:
+                exists = fetch_one(
+                    "SELECT id FROM projects WHERE name = ?",
+                    (name,),
+                )
+                if exists:
+                    st.warning("پروژه‌ای با این نام وجود دارد.")
+                else:
+                    execute(
+                        "INSERT INTO projects(name, created_at) VALUES (?, ?)",
+                        (name, timestamp()),
+                    )
+                    st.session_state.orbit_project_name = name
+                    st.success("پروژه ساخته شد.")
+                    st.rerun()
+            else:
+                st.warning("نام پروژه را وارد کن.")
+
+    st.markdown("### پروژه‌های موجود")
+
+    for project in projects:
+        with st.container(border=True):
+            st.markdown(f"#### 📂 {project['name']}")
+            st.caption(f"تاریخ ایجاد: {project['created_at']}")
+
+            p1, p2 = st.columns(2)
+            if p1.button(
+                "انتخاب پروژه",
+                key=f"select_project_{project['id']}",
+                use_container_width=True,
+            ):
+                st.session_state.orbit_project_name = project["name"]
+                st.session_state.orbit_page = "🏠 خانه"
+                st.rerun()
+
+            if p2.button(
+                "حذف پروژه",
+                key=f"remove_project_{project['id']}",
+                use_container_width=True,
+                disabled=len(projects) <= 1,
+            ):
+                st.session_state[f"confirm_delete_{project['id']}"] = True
+
+            if st.session_state.get(
+                f"confirm_delete_{project['id']}", False
+            ):
+                st.warning(
+                    "حذف پروژه، پیام‌ها، یادداشت‌ها و کارهای "
+                    "ذخیره‌شدهٔ آن را نیز حذف می‌کند."
+                )
+                yes, no = st.columns(2)
+
+                if yes.button(
+                    "تأیید حذف",
+                    key=f"yes_delete_{project['id']}",
+                    use_container_width=True,
+                ):
+                    execute(
+                        "DELETE FROM projects WHERE id = ?",
+                        (project["id"],),
+                    )
+                    st.session_state.pop(
+                        f"confirm_delete_{project['id']}", None
+                    )
+                    st.rerun()
+
+                if no.button(
+                    "انصراف",
+                    key=f"no_delete_{project['id']}",
+                    use_container_width=True,
+                ):
+                    st.session_state.pop(
+                        f"confirm_delete_{project['id']}", None
+                    )
+                    st.rerun()
+
+
+# =========================================================
+# Connection and settings
+# =========================================================
+elif page == "🔧 اتصال و تنظیمات":
+    section_heading(
+        "🔧 اتصال و تنظیمات",
+        "وضعیت سرویس هوش مصنوعی را بررسی کن.",
     )
 
     api_key, selected_model = get_api_config()
 
-    st.write(
-        "وضعیت کلید:",
-        "تنظیم شده" if api_key else "تنظیم نشده",
-    )
-    st.write("مدل فعال:", selected_model)
-    st.write("نشانی سرویس:", API_URL)
+    with st.container(border=True):
+        st.markdown("### وضعیت OpenRouter")
 
-    if st.button("🧪 آزمایش اتصال آنلاین"):
-        with st.spinner("در حال آزمایش اتصال..."):
-            test_answer, test_error = ask_openrouter([
-                {
-                    "role": "user",
-                    "content": (
-                        "فقط با یک جملهٔ کوتاه و به فارسی روان بگو "
-                        "که اتصال ORBIT AI برقرار است."
-                    ),
-                }
-            ])
-
-        if test_answer:
-            st.success("اتصال آنلاین موفق بود.")
-            st.write(test_answer)
+        if api_key:
+            st.success("کلید API تنظیم شده است.")
         else:
-            st.error("آزمایش اتصال ناموفق بود.")
-            st.code(
-                test_error or "علت خطا مشخص نیست.",
-                language="text",
-            )
+            st.error("کلید API تنظیم نشده است.")
 
-    st.caption(
-        "اگر اتصال ناموفق بود، تنظیمات Secrets را بررسی کن. "
-        "کلید API را در گفت‌وگو یا تصویر منتشر نکن."
-    )
+        st.write("مدل فعال:", selected_model)
+        st.write("نشانی سرویس:", API_URL)
+
+        if st.button(
+            "🧪 آزمایش اتصال",
+            use_container_width=True,
+        ):
+            with st.spinner("در حال بررسی اتصال..."):
+                answer, error = ask_openrouter([
+                    {
+                        "role": "user",
+                        "content": (
+                            "فقط با یک جملهٔ کوتاه و به فارسی روان "
+                            "بگو اتصال برقرار است."
+                        ),
+                    }
+                ])
+
+            if answer:
+                st.success("اتصال آنلاین موفق بود.")
+                st.write(answer)
+            else:
+                st.error("اتصال ناموفق بود.")
+                st.code(error or "علت خطا مشخص نیست.")
+
+    with st.container(border=True):
+        st.markdown("### راهنمای تنظیم کلید")
+
+        st.write(
+            "در Streamlit Cloud، وارد تنظیمات برنامه و بخش "
+            "Secrets شو. این دو مقدار باید تنظیم شده باشند:"
+        )
+
+        st.code(
+            'OPENROUTER_API_KEY = "کلید واقعی تو"\n'
+            'OPENROUTER_MODEL = "openrouter/free"',
+            language="toml",
+        )
+
+        st.warning(
+            "کلید واقعی را در فایل app.py یا مخزن عمومی GitHub "
+            "قرار نده و برای دیگران ارسال نکن."
+        )
 
 
+# =========================================================
+# Footer
+# =========================================================
 st.divider()
-st.caption(
-    "ORBIT AI · دستیار فارسی با اتصال آنلاین به OpenRouter"
+st.markdown(
+    '<p style="text-align:center;color:#858fb1;'
+    'font-size:.82rem;">🌌 ORBIT AI · فضای کاری هوشمند</p>',
+    unsafe_allow_html=True,
 )
