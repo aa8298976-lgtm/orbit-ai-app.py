@@ -187,7 +187,19 @@ def get_messages(project):
     ]
 
 
+
 def save_message(project, role, content):
+    with db() as conn:
+        conn.execute("""
+            INSERT INTO messages (project, role, content, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (
+            project or "گفت‌وگوی من",
+            role,
+            content or "",
+            datetime.now().isoformat()
+        ))
+
     with db() as conn:
         conn.execute("""
             INSERT INTO messages (project, role, content, created_at)
