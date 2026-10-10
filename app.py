@@ -1,783 +1,499 @@
 
 
+
 import os
-import io
-import sys
-import json
+import sqlite3
 from datetime import datetime
 
+import requests
 import streamlit as st
-from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont, ImageOps
 
-# --------------------------------------------------
-# ORBIT AI - Main Application
-# --------------------------------------------------
-
-APP_NAME = "ORBIT AI"
+APP_TITLE = "ORBIT AI"
+DB_PATH = "orbit_memory.db"
 
 st.set_page_config(
-    page_title="ORBIT AI",
-    page_icon="🚀",
+    page_title=APP_TITLE,
+    page_icon="🌌",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Allow imports from the existing project folder
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CORE_DIR = os.path.join(BASE_DIR, "orbit-ai")
 
-if os.path.isdir(CORE_DIR):
-    sys.path.insert(0, CORE_DIR)
+# ---------- Database ----------
+def get_db():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
-# --------------------------------------------------
-# Styling
-# --------------------------------------------------
 
+def init_db():
+    with get_db() as db:
+        db.executescript("""
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id)
+                ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id)
+                ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            task TEXT NOT NULL,
+            done INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id)
+                ON DELETE CASCADE
+        );
+        """)
+
+        count = db.execute(
+            "SELECT COUNT(*) FROM projects"
+        ).fetchone()[0]
+
+        if count == 0:
+            db.execute(
+                "INSERT INTO projects(name, created_at) VALUES (?, ?)",
+                ("پروژه اصلی ORBIT", datetime.now().isoformat(timespec="seconds")),
+            )
+
+
+def query_all(sql, params=()):
+    with get_db() as db:
+        return db.execute(sql, params).fetchall()
+
+
+def query_one(sql, params=()):
+    with get_db() as db:
+        return db.execute(sql, params).fetchone()
+
+
+def execute(sql, params=()):
+    with get_db() as db:
+        cur = db.execute(sql, params)
+        return cur.lastrowid
+
+
+def now():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+init_db()
+
+
+# ---------- OpenRouter ----------
+def get_secret(name, default=""):
+    try:
+        return str(st.secrets.get(name, default)).strip()
+    except Exception:
+        return os.getenv(name, default).strip()
+
+
+def ask_openrouter(messages):
+    api_key = get_secret("OPENROUTER_API_KEY")
+    model = get_secret("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+
+    if not api_key:
+        return None, (
+            "کلید OPENROUTER_API_KEY تنظیم نشده است. "
+            "آن را در بخش Secrets برنامه Streamlit وارد کن."
+        )
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-OpenRouter-Title": "ORBIT AI",
+    }
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60,
+        )
+
+        if response.status_code != 200:
+            try:
+                details = response.json().get("error", {}).get(
+                    "message", response.text
+                )
+            except Exception:
+                details = response.text
+
+            return None, (
+                f"خطای OpenRouter ({response.status_code}): {details}"
+            )
+
+        data = response.json()
+        answer = data["choices"][0]["message"]["content"]
+
+        if isinstance(answer, list):
+            answer = "\n".join(
+                str(item.get("text", ""))
+                for item in answer
+                if isinstance(item, dict)
+            )
+
+        if not answer:
+            return None, "پاسخ خالی از OpenRouter دریافت شد."
+
+        return str(answer), None
+
+    except requests.Timeout:
+        return None, "زمان پاسخ‌گویی تمام شد. دوباره امتحان کن."
+    except Exception as exc:
+        return None, f"اتصال به OpenRouter ناموفق بود: {exc}"
+
+
+# ---------- Offline mode ----------
+def offline_answer(prompt):
+    text = prompt.strip()
+    lower = text.lower()
+
+    if any(word in lower for word in ["سلام", "درود", "hello", "hi"]):
+        return (
+            "سلام! به ORBIT AI خوش آمدی 🌌\n\n"
+            "در حال حاضر پاسخ آفلاین ارائه می‌دهم. "
+            "برای گفت‌وگوی هوش مصنوعی آنلاین، کلید OpenRouter را تنظیم کن."
+        )
+
+    if any(word in lower for word in ["برنامه", "هدف", "plan", "هدفم"]):
+        return (
+            "برای شروع، هدفت را به مراحل کوچک تقسیم کن:\n\n"
+            "۱. هدف نهایی را دقیق بنویس.\n"
+            "۲. سه اقدام مهم را مشخص کن.\n"
+            "۳. اولین اقدام را امروز انجام بده.\n"
+            "۴. هر هفته نتیجه را بررسی کن.\n\n"
+            "این پاسخ آفلاین و عمومی است؛ برای برنامه شخصی‌تر، "
+            "جزئیات هدف را بنویس."
+        )
+
+    return (
+        "حالت آفلاین ORBIT AI فعال است.\n\n"
+        "در این حالت امکانات پایه در دسترس‌اند، اما پاسخ‌های هوشمند "
+        "آنلاین فعال نیستند. برای فعال‌کردن آن، در Streamlit Secrets "
+        "کلید OPENROUTER_API_KEY و نام مدل را تنظیم کن.\n\n"
+        f"پیام تو: {text}"
+    )
+
+
+# ---------- Sidebar and projects ----------
 st.markdown(
     """
     <style>
-    .stApp {
-        background: #0b0d12;
-        color: #f4f5f7;
-    }
-    [data-testid="stSidebar"] {
-        background: #11141c;
-        border-right: 1px solid #252a36;
-    }
-    .block-container {
-        max-width: 1400px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
-    .hero {
-        padding: 28px;
-        border-radius: 22px;
-        background: linear-gradient(135deg, #171d2c, #11131b);
-        border: 1px solid #2a3040;
-        margin-bottom: 24px;
-    }
-    .hero h1 {
-        font-size: 36px;
-        margin-bottom: 8px;
-    }
-    .muted {
-        color: #a6adbd;
-    }
-    div[data-testid="stMetric"] {
-        background: #141823;
-        border: 1px solid #292f3d;
-        border-radius: 14px;
-        padding: 16px;
-    }
-    .stButton button,
-    .stDownloadButton button {
-        border-radius: 10px;
-        min-height: 42px;
+    .stApp { max-width: 1200px; margin: auto; }
+    [data-testid="stMetric"] {
+        border: 1px solid rgba(128,128,128,.25);
+        padding: 12px; border-radius: 12px;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# --------------------------------------------------
-# Session state
-# --------------------------------------------------
+st.title("🌌 ORBIT AI")
+st.caption("دستیار هوشمند برای گفت‌وگو، پروژه‌ها، برنامه‌ریزی و یادداشت‌ها")
 
-if "page" not in st.session_state:
-    st.session_state.page = "خانه"
-
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-if "saved_projects" not in st.session_state:
-    st.session_state.saved_projects = []
-
-# --------------------------------------------------
-# Helpers
-# --------------------------------------------------
-
-def show_header(title, description=""):
-    st.markdown(
-        f"""
-        <div class="hero">
-            <h1>{title}</h1>
-            <div class="muted">{description}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def image_to_bytes(image, fmt="PNG", quality=95):
-    output = io.BytesIO()
-
-    if fmt.upper() in ("JPG", "JPEG"):
-        image = image.convert("RGB")
-        image.save(
-            output,
-            format="JPEG",
-            quality=quality,
-            optimize=True,
-        )
-    else:
-        image.save(output, format="PNG", optimize=True)
-
-    return output.getvalue()
-
-
-def crop_to_ratio(image, ratio_name):
-    ratios = {
-        "بدون برش": None,
-        "استوری 9:16": 9 / 16,
-        "پست عمودی 4:5": 4 / 5,
-        "مربع 1:1": 1.0,
-        "افقی 16:9": 16 / 9,
-    }
-
-    target = ratios.get(ratio_name)
-
-    if target is None:
-        return image
-
-    width, height = image.size
-    current = width / height
-
-    if current > target:
-        new_width = int(height * target)
-        left = (width - new_width) // 2
-        image = image.crop((left, 0, left + new_width, height))
-    else:
-        new_height = int(width / target)
-        top = (height - new_height) // 2
-        image = image.crop((0, top, width, top + new_height))
-
-    return image
-
-
-def load_font(size):
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-        "DejaVuSans.ttf",
-    ]
-
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-
-    return ImageFont.load_default()
-
-
-def apply_image_edit(
-    original,
-    brightness,
-    contrast,
-    saturation,
-    sharpness,
-    filter_name,
-    rotation,
-    flip_horizontal,
-    ratio_name,
-    blur_amount,
-    overlay_text,
-    watermark,
-):
-    image = ImageOps.exif_transpose(original).convert("RGB")
-
-    # Basic adjustments
-    image = ImageEnhance.Brightness(image).enhance(brightness)
-    image = ImageEnhance.Contrast(image).enhance(contrast)
-    image = ImageEnhance.Color(image).enhance(saturation)
-    image = ImageEnhance.Sharpness(image).enhance(sharpness)
-
-    # Presets
-    if filter_name == "سیاه‌وسفید":
-        image = ImageOps.grayscale(image).convert("RGB")
-
-    elif filter_name == "سینمایی":
-        image = ImageEnhance.Contrast(image).enhance(1.15)
-        image = ImageEnhance.Color(image).enhance(0.75)
-
-    elif filter_name == "گرم":
-        r, g, b = image.split()
-        r = r.point(lambda x: min(255, int(x * 1.08)))
-        b = b.point(lambda x: int(x * 0.90))
-        image = Image.merge("RGB", (r, g, b))
-
-    elif filter_name == "سرد":
-        r, g, b = image.split()
-        r = r.point(lambda x: int(x * 0.91))
-        b = b.point(lambda x: min(255, int(x * 1.08)))
-        image = Image.merge("RGB", (r, g, b))
-
-    elif filter_name == "وینتیج":
-        r, g, b = image.split()
-        r = r.point(lambda x: min(255, int(x * 1.04)))
-        g = g.point(lambda x: min(255, int(x * 1.01)))
-        b = b.point(lambda x: int(x * 0.90))
-        image = Image.merge("RGB", (r, g, b))
-        image = ImageEnhance.Color(image).enhance(0.75)
-
-    # Rotation and flip
-    if rotation:
-        image = image.rotate(
-            rotation,
-            expand=True,
-            resample=Image.Resampling.BICUBIC,
-        )
-
-    if flip_horizontal:
-        image = ImageOps.mirror(image)
-
-    # Crop
-    image = crop_to_ratio(image, ratio_name)
-
-    # Blur
-    if blur_amount > 0:
-        image = image.filter(
-            ImageFilter.GaussianBlur(radius=blur_amount)
-        )
-
-    # Text and watermark
-    if overlay_text.strip() or watermark.strip():
-        image = image.copy()
-        draw = ImageDraw.Draw(image)
-        width, height = image.size
-
-        if overlay_text.strip():
-            font = load_font(max(16, width // 24))
-            bbox = draw.textbbox((0, 0), overlay_text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-
-            x = max(10, (width - text_width) // 2)
-            y = max(10, height - text_height - 40)
-
-            draw.text(
-                (x + 2, y + 2),
-                overlay_text,
-                font=font,
-                fill=(0, 0, 0),
-                stroke_width=2,
-                stroke_fill=(0, 0, 0),
-            )
-            draw.text(
-                (x, y),
-                overlay_text,
-                font=font,
-                fill=(255, 255, 255),
-                stroke_width=1,
-                stroke_fill=(30, 30, 30),
-            )
-
-        if watermark.strip():
-            font = load_font(max(12, width // 45))
-            margin = max(12, width // 40)
-            bbox = draw.textbbox((0, 0), watermark, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-
-            draw.text(
-                (
-                    width - text_width - margin,
-                    height - text_height - margin,
-                ),
-                watermark,
-                font=font,
-                fill=(255, 255, 255),
-                stroke_width=1,
-                stroke_fill=(0, 0, 0),
-            )
-
-    return image
-
-
-# --------------------------------------------------
-# Sidebar navigation
-# --------------------------------------------------
+projects = query_all("SELECT * FROM projects ORDER BY id DESC")
 
 with st.sidebar:
-    st.markdown("# 🚀 ORBIT AI")
-    st.caption("Creative AI Workspace")
-    st.divider()
+    st.header("📁 پروژه‌ها")
 
-    pages = {
-        "🏠 خانه": "خانه",
-        "💬 دستیار هوشمند": "دستیار هوشمند",
-        "🧠 برنامه‌ریز": "برنامه‌ریز",
-        "🖼️ ویرایش عکس": "ویرایش عکس",
-        "🎬 ابزارهای ویدئو": "ابزارهای ویدئو",
-        "✨ ساخت تصویر": "ساخت تصویر",
-        "📁 پروژه‌های ذخیره‌شده": "پروژه‌های ذخیره‌شده",
+    project_options = {
+        row["name"]: row["id"] for row in projects
     }
 
-    for label, page_name in pages.items():
-        if st.button(
-            label,
-            key=f"nav_{page_name}",
-            use_container_width=True,
-        ):
-            st.session_state.page = page_name
+    if not project_options:
+        st.error("پروژه‌ای وجود ندارد.")
+        st.stop()
+
+    current_project_name = st.selectbox(
+        "پروژه فعال",
+        list(project_options.keys()),
+    )
+    project_id = project_options[current_project_name]
+
+    with st.expander("➕ ساخت پروژه جدید"):
+        with st.form("new_project_form", clear_on_submit=True):
+            new_project_name = st.text_input("نام پروژه")
+            create_project = st.form_submit_button("ساخت پروژه")
+
+        if create_project and new_project_name.strip():
+            execute(
+                "INSERT INTO projects(name, created_at) VALUES (?, ?)",
+                (new_project_name.strip(), now()),
+            )
+            st.rerun()
 
     st.divider()
-    st.caption("ORBIT AI · Personal Creative Studio")
+    st.caption("وضعیت اتصال")
 
-page = st.session_state.page
-
-# --------------------------------------------------
-# HOME
-# --------------------------------------------------
-
-if page == "خانه":
-    show_header(
-        "ORBIT AI",
-        "فضای کاری یکپارچه برای خلاقیت، عکس، ویدئو و برنامه‌ریزی",
-    )
-
-    st.markdown("### فضای کاری شما")
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.metric("پروژه‌های این نشست", len(st.session_state.saved_projects))
-
-    with c2:
-        st.metric("گفتگوها", len(st.session_state.chat_history))
-
-    with c3:
-        st.metric("ابزارهای اصلی", "6")
-
-    st.markdown("### شروع سریع")
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        if st.button("🖼️ شروع ویرایش عکس", use_container_width=True):
-            st.session_state.page = "ویرایش عکس"
-            st.rerun()
-
-        if st.button("💬 گفتگو با دستیار", use_container_width=True):
-            st.session_state.page = "دستیار هوشمند"
-            st.rerun()
-
-    with c2:
-        if st.button("🎬 ویرایش ویدئو", use_container_width=True):
-            st.session_state.page = "ابزارهای ویدئو"
-            st.rerun()
-
-        if st.button("🧠 برنامه‌ریز هوشمند", use_container_width=True):
-            st.session_state.page = "برنامه‌ریز"
-            st.rerun()
-
-    st.info(
-        "برای ویرایش عکس، فایل خودت را بارگذاری کن و تنظیمات را تغییر بده. "
-        "برای خروجی ویدئو، فایل video_tools.py نیز باید در مخزن موجود باشد."
-    )
-
-# --------------------------------------------------
-# IMAGE EDITOR
-# --------------------------------------------------
-
-elif page == "ویرایش عکس":
-    show_header(
-        "ویرایش عکس",
-        "تنظیم نور و رنگ، فیلتر، برش، وضوح، متن و واترمارک",
-    )
-
-    uploaded = st.file_uploader(
-        "عکس را انتخاب کن",
-        type=["jpg", "jpeg", "png", "webp"],
-        key="image_upload",
-    )
-
-    if uploaded:
-        try:
-            original = Image.open(uploaded)
-            original = ImageOps.exif_transpose(original).convert("RGB")
-
-            st.markdown("### تنظیمات ویرایش")
-
-            with st.expander("💡 نور و رنگ", expanded=True):
-                c1, c2 = st.columns(2)
-
-                with c1:
-                    brightness = st.slider(
-                        "روشنایی",
-                        0.2, 2.0, 1.0, 0.05,
-                    )
-                    contrast = st.slider(
-                        "کنتراست",
-                        0.2, 2.0, 1.0, 0.05,
-                    )
-
-                with c2:
-                    saturation = st.slider(
-                        "اشباع رنگ",
-                        0.0, 2.0, 1.0, 0.05,
-                    )
-                    sharpness = st.slider(
-                        "وضوح",
-                        0.0, 3.0, 1.0, 0.1,
-                    )
-
-            c1, c2 = st.columns(2)
-
-            with c1:
-                filter_name = st.selectbox(
-                    "فیلتر",
-                    [
-                        "طبیعی",
-                        "سینمایی",
-                        "سیاه‌وسفید",
-                        "گرم",
-                        "سرد",
-                        "وینتیج",
-                    ],
-                )
-
-                ratio_name = st.selectbox(
-                    "ابعاد تصویر",
-                    [
-                        "بدون برش",
-                        "استوری 9:16",
-                        "پست عمودی 4:5",
-                        "مربع 1:1",
-                        "افقی 16:9",
-                    ],
-                )
-
-            with c2:
-                rotation = st.selectbox(
-                    "چرخش",
-                    [0, 90, 180, 270],
-                    format_func=lambda x: f"{x} درجه",
-                )
-
-                flip_horizontal = st.checkbox("قرینه افقی")
-
-                blur_amount = st.slider(
-                    "محو کردن تصویر",
-                    0.0, 10.0, 0.0, 0.5,
-                )
-
-            st.markdown("### متن و واترمارک")
-
-            overlay_text = st.text_input(
-                "متن روی عکس",
-                placeholder="متن دلخواه...",
-            )
-
-            watermark = st.text_input(
-                "واترمارک",
-                placeholder="مثلاً ORBIT AI",
-            )
-
-            edited = apply_image_edit(
-                original=original,
-                brightness=brightness,
-                contrast=contrast,
-                saturation=saturation,
-                sharpness=sharpness,
-                filter_name=filter_name,
-                rotation=rotation,
-                flip_horizontal=flip_horizontal,
-                ratio_name=ratio_name,
-                blur_amount=blur_amount,
-                overlay_text=overlay_text,
-                watermark=watermark,
-            )
-
-            st.markdown("### پیش‌نمایش")
-
-            left, right = st.columns(2)
-
-            with left:
-                st.caption("عکس اصلی")
-                st.image(original, use_container_width=True)
-
-            with right:
-                st.caption("عکس ویرایش‌شده")
-                st.image(edited, use_container_width=True)
-
-            d1, d2 = st.columns(2)
-
-            with d1:
-                st.download_button(
-                    "⬇️ دانلود PNG",
-                    data=image_to_bytes(edited, "PNG"),
-                    file_name="orbit_ai_edited.png",
-                    mime="image/png",
-                    use_container_width=True,
-                )
-
-            with d2:
-                st.download_button(
-                    "⬇️ دانلود JPG",
-                    data=image_to_bytes(edited, "JPEG"),
-                    file_name="orbit_ai_edited.jpg",
-                    mime="image/jpeg",
-                    use_container_width=True,
-                )
-
-            if st.button("📁 ذخیره نتیجه در پروژه‌های این نشست"):
-                st.session_state.saved_projects.append({
-                    "name": "ویرایش عکس",
-                    "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "details": f"خروجی تصویر {edited.width}×{edited.height}",
-                    "image": image_to_bytes(edited, "PNG"),
-                })
-                st.success("نتیجه تا پایان نشست در فهرست پروژه‌ها ثبت شد.")
-
-            st.caption(
-                "توجه: این ابزارها ویرایش پایه انجام می‌دهند؛ "
-                "قابلیت‌های پیشرفته‌ای مثل حذف هوشمند اشیا، ماسک و لایه‌های فتوشاپ "
-                "در این نسخه پیاده‌سازی نشده‌اند."
-            )
-
-        except Exception as exc:
-            st.error(f"بازکردن یا ویرایش عکس ناموفق بود: {exc}")
-
+    if get_secret("OPENROUTER_API_KEY"):
+        st.success("کلید API تنظیم شده")
     else:
-        st.info("برای شروع، یک عکس بارگذاری کن.")
+        st.warning("حالت آفلاین؛ کلید API تنظیم نشده")
 
-# --------------------------------------------------
-# VIDEO TOOLS
-# --------------------------------------------------
+    st.caption("کلید API را در کد برنامه قرار نده.")
 
-elif page == "ابزارهای ویدئو":
-    show_header(
-        "ابزارهای ویدئو",
-        "برش ویدئو، تغییر سرعت، تنظیم رنگ و خروجی MP4",
+
+# ---------- Main tabs ----------
+chat_tab, planner_tab, text_tab, memory_tab = st.tabs(
+    ["💬 گفت‌وگو", "📋 برنامه‌ریز", "📝 تحلیل متن", "🧠 حافظه"]
+)
+
+
+# ---------- Chat ----------
+with chat_tab:
+    st.subheader(f"گفت‌وگو — {current_project_name}")
+
+    history = query_all(
+        """SELECT role, content FROM messages
+           WHERE project_id = ?
+           ORDER BY id ASC""",
+        (project_id,),
     )
 
-    try:
-        from video_tools import render_video_tools
-        render_video_tools()
+    if not history:
+        st.info("گفت‌وگو را با نوشتن اولین پیام شروع کن.")
 
-    except ImportError as exc:
-        st.error(
-            "فایل video_tools.py یا یکی از وابستگی‌های آن پیدا نشد."
-        )
-        st.code(str(exc))
-        st.markdown(
-            "بررسی کن فایل `video_tools.py` در کنار `app.py` باشد "
-            "و وابستگی‌های آن در `requirements.txt` نصب شده باشند."
-        )
-
-    except Exception as exc:
-        st.error(f"خطا در ابزارهای ویدئو: {exc}")
-
-# --------------------------------------------------
-# ASSISTANT
-# --------------------------------------------------
-
-elif page == "دستیار هوشمند":
-    show_header(
-        "دستیار هوشمند",
-        "پرسش‌ها و ایده‌هایت را در این بخش بنویس",
-    )
-
-    st.warning(
-        "این نسخه به‌صورت پیش‌فرض به مدل زبانی آنلاین متصل نیست؛ "
-        "پاسخ‌های زیر راهنمای پایه هستند."
-    )
-
-    for item in st.session_state.chat_history:
+    for item in history:
         with st.chat_message(item["role"]):
             st.markdown(item["content"])
 
-    prompt = st.chat_input("پیام خود را بنویس...")
+    if st.button("🗑️ پاک‌کردن تاریخچه این پروژه", key="clear_chat"):
+        execute("DELETE FROM messages WHERE project_id = ?", (project_id,))
+        st.rerun()
 
-    if prompt:
-        st.session_state.chat_history.append({
-            "role": "user",
-            "content": prompt,
-        })
+    user_prompt = st.chat_input("پیامت را برای ORBIT AI بنویس...")
 
-        response = (
-            "درخواستت دریافت شد.\n\n"
-            "برای پاسخ هوشمند واقعی، باید یک مدل زبانی و API معتبر "
-            "به ORBIT AI متصل شود. در این نسخه اتصال آنلاین فعال نیست.\n\n"
-            f"**درخواست شما:** {prompt}"
+    if user_prompt:
+        execute(
+            """INSERT INTO messages(project_id, role, content, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (project_id, "user", user_prompt, now()),
         )
 
-        st.session_state.chat_history.append({
-            "role": "assistant",
-            "content": response,
-        })
+        memory_notes = query_all(
+            "SELECT content FROM notes WHERE project_id = ? ORDER BY id DESC LIMIT 10",
+            (project_id,),
+        )
 
+        memory_text = "\n".join(
+            f"- {row['content']}" for row in memory_notes
+        ) or "هنوز یادداشت ذخیره‌شده‌ای وجود ندارد."
+
+        system_prompt = (
+            "تو ORBIT AI هستی؛ دستیار مفید، دقیق و خوش‌برخورد. "
+            "به زبان کاربر پاسخ بده. اگر مطمئن نیستی، صادقانه بگو. "
+            "اطلاعات حافظه پروژه را فقط به‌عنوان زمینه مرتبط استفاده کن.\n\n"
+            f"نام پروژه: {current_project_name}\n"
+            f"یادداشت‌های حافظه این پروژه:\n{memory_text}"
+        )
+
+        recent = query_all(
+            """SELECT role, content FROM messages
+               WHERE project_id = ?
+               ORDER BY id DESC LIMIT 16""",
+            (project_id,),
+        )
+        recent = list(reversed(recent))
+
+        api_messages = [{"role": "system", "content": system_prompt}]
+        api_messages.extend(
+            {"role": row["role"], "content": row["content"]}
+            for row in recent
+            if row["role"] in ("user", "assistant")
+        )
+
+        with st.spinner("ORBIT AI در حال پاسخ‌گویی است..."):
+            answer, error = ask_openrouter(api_messages)
+
+        if answer is None:
+            answer = offline_answer(user_prompt)
+            st.warning(
+                "پاسخ آنلاین دریافت نشد؛ پاسخ پایه آفلاین نمایش داده می‌شود."
+            )
+            if error:
+                with st.expander("جزئیات اتصال"):
+                    st.code(error)
+
+        execute(
+            """INSERT INTO messages(project_id, role, content, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (project_id, "assistant", answer, now()),
+        )
         st.rerun()
 
-    if st.button("پاک‌کردن تاریخچه گفتگو"):
-        st.session_state.chat_history = []
-        st.rerun()
 
-# --------------------------------------------------
-# PLANNER
-# --------------------------------------------------
+# ---------- Planner ----------
+with planner_tab:
+    st.subheader("📋 برنامه‌ریز اهداف")
+    st.write("هدفت را به کارهای قابل انجام تبدیل کن.")
 
-elif page == "برنامه‌ریز":
-    show_header(
-        "برنامه‌ریز",
-        "ساخت یک برنامه اولیه برای کارها و پروژه‌ها",
+    with st.form("planner_form", clear_on_submit=True):
+        goal = st.text_input("هدف تو چیست؟")
+        add_goal = st.form_submit_button("افزودن هدف")
+
+    if add_goal and goal.strip():
+        execute(
+            """INSERT INTO tasks(project_id, task, done, created_at)
+               VALUES (?, ?, 0, ?)""",
+            (project_id, goal.strip(), now()),
+        )
+        st.success("هدف ذخیره شد.")
+
+    tasks = query_all(
+        "SELECT * FROM tasks WHERE project_id = ? ORDER BY id DESC",
+        (project_id,),
     )
 
-    task = st.text_area(
-        "چه کاری می‌خواهی انجام بدهی؟",
-        placeholder="مثلاً ساخت یک ویدئوی تبلیغاتی...",
-    )
+    if tasks:
+        st.write("### کارهای این پروژه")
+        for task in tasks:
+            col1, col2 = st.columns([5, 1])
 
-    deadline = st.selectbox(
-        "زمان موردنظر",
-        ["امروز", "این هفته", "این ماه", "بدون زمان مشخص"],
-    )
+            checked = col1.checkbox(
+                task["task"],
+                value=bool(task["done"]),
+                key=f"task_{task['id']}",
+            )
 
-    priority = st.select_slider(
-        "اولویت",
-        options=["کم", "متوسط", "زیاد"],
-        value="متوسط",
-    )
-
-    if st.button("ساخت برنامه", use_container_width=True):
-        if not task.strip():
-            st.warning("ابتدا موضوع کار را بنویس.")
-        else:
-            try:
-                from core.planner import create_plan
-
-                plan = create_plan(task)
-
-                st.markdown("### برنامه پیشنهادی")
-                st.write(plan)
-
-            except Exception:
-                st.markdown("### برنامه پیشنهادی")
-
-                st.markdown(
-                    f"""
-                    **هدف:** {task}
-
-                    **مهلت:** {deadline}
-
-                    **اولویت:** {priority}
-
-                    1. هدف و نتیجه نهایی را مشخص کن.
-                    2. کار را به چند مرحله کوچک تقسیم کن.
-                    3. منابع و فایل‌های موردنیاز را آماده کن.
-                    4. مرحله اول را انجام بده و نتیجه را بررسی کن.
-                    5. خروجی نهایی را بازبینی و ذخیره کن.
-                    """
+            if int(checked) != int(task["done"]):
+                execute(
+                    "UPDATE tasks SET done = ? WHERE id = ?",
+                    (int(checked), task["id"]),
                 )
+                st.rerun()
 
-# --------------------------------------------------
-# IMAGE GENERATION
-# --------------------------------------------------
+            if col2.button("حذف", key=f"delete_task_{task['id']}"):
+                execute("DELETE FROM tasks WHERE id = ?", (task["id"],))
+                st.rerun()
+    else:
+        st.info("هنوز هدفی اضافه نشده است.")
 
-elif page == "ساخت تصویر":
-    show_header(
-        "ساخت تصویر",
-        "آماده‌کردن توضیحات تصویر برای اتصال به مدل تولید تصویر",
+
+# ---------- Text analysis ----------
+with text_tab:
+    st.subheader("📝 تحلیل متن")
+
+    input_text = st.text_area(
+        "متن موردنظر را وارد کن",
+        height=220,
+        placeholder="متن را اینجا وارد کن...",
     )
 
-    prompt = st.text_area(
-        "توضیح تصویری که می‌خواهی بسازی",
-        placeholder=(
-            "مثلاً: پرتره سینمایی، نورپردازی حرفه‌ای، "
-            "پس‌زمینه تیره و جزئیات واقع‌گرایانه..."
-        ),
-        height=150,
-    )
-
-    style = st.selectbox(
-        "سبک",
+    analysis_type = st.selectbox(
+        "نوع تحلیل",
         [
-            "واقع‌گرایانه",
-            "سینمایی",
-            "فشن",
-            "دیجیتال آرت",
-            "مینیمال",
+            "خلاصه‌سازی",
+            "بازنویسی و بهبود",
+            "استخراج نکات کلیدی",
+            "ترجمه به انگلیسی",
+            "ترجمه به فارسی",
         ],
     )
 
-    aspect = st.selectbox(
-        "نسبت تصویر",
-        ["1:1", "4:5", "9:16", "16:9"],
-    )
-
-    if st.button("آماده‌سازی توضیحات تصویر", use_container_width=True):
-        if not prompt.strip():
-            st.warning("ابتدا توضیحات تصویر را وارد کن.")
+    if st.button("تحلیل متن", key="analyze_text"):
+        if not input_text.strip():
+            st.warning("اول یک متن وارد کن.")
         else:
-            prepared_prompt = (
-                f"Style: {style}\n"
-                f"Aspect ratio: {aspect}\n"
-                f"Prompt: {prompt.strip()}"
+            instruction = (
+                f"لطفاً متن زیر را با این روش پردازش کن: {analysis_type}.\n\n"
+                f"متن:\n{input_text}"
             )
 
-            st.success("توضیحات آماده شد.")
-            st.code(prepared_prompt)
+            result, error = ask_openrouter([
+                {
+                    "role": "system",
+                    "content": "تو دستیار حرفه‌ای تحلیل و ویرایش متن هستی.",
+                },
+                {"role": "user", "content": instruction},
+            ])
 
-            st.download_button(
-                "دانلود توضیحات",
-                data=prepared_prompt,
-                file_name="orbit_ai_image_prompt.txt",
-                mime="text/plain",
-            )
+            if result:
+                st.markdown("### نتیجه")
+                st.markdown(result)
+            else:
+                st.warning("تحلیل آنلاین انجام نشد.")
+                if error:
+                    st.caption(error)
+                st.markdown("### متن ورودی")
+                st.write(input_text)
+                st.info(
+                    "برای تحلیل هوشمند، کلید API و نام مدل را بررسی کن."
+                )
 
-    st.info(
-        "ساخت واقعی تصویر در این بخش هنوز فعال نیست. "
-        "برای تولید تصویر باید سرویس تولید تصویر به برنامه متصل شود."
+
+# ---------- Memory ----------
+with memory_tab:
+    st.subheader("🧠 حافظه پروژه")
+    st.write(
+        "یادداشت‌هایی ذخیره کن تا ORBIT AI بتواند در گفت‌وگوهای بعدی "
+        "همین پروژه از آن‌ها به‌عنوان زمینه استفاده کند."
     )
 
-# --------------------------------------------------
-# SAVED PROJECTS
-# --------------------------------------------------
-
-elif page == "پروژه‌های ذخیره‌شده":
-    show_header(
-        "پروژه‌های ذخیره‌شده",
-        "نتایج ذخیره‌شده در نشست فعلی برنامه",
-    )
-
-    projects = st.session_state.saved_projects
-
-    if not projects:
-        st.info(
-            "هنوز پروژه‌ای ذخیره نشده است. "
-            "از بخش ویرایش عکس، نتیجه را ذخیره کن."
+    with st.form("memory_form", clear_on_submit=True):
+        note_content = st.text_area(
+            "یادداشت جدید",
+            placeholder="مثلاً: هدف این پروژه ساخت یک دستیار شخصی است.",
         )
+        save_note = st.form_submit_button("ذخیره در حافظه")
 
+    if save_note and note_content.strip():
+        execute(
+            """INSERT INTO notes(project_id, content, created_at)
+               VALUES (?, ?, ?)""",
+            (project_id, note_content.strip(), now()),
+        )
+        st.success("یادداشت ذخیره شد.")
+        st.rerun()
+
+    notes = query_all(
+        "SELECT * FROM notes WHERE project_id = ? ORDER BY id DESC",
+        (project_id,),
+    )
+
+    if notes:
+        for note in notes:
+            with st.container(border=True):
+                st.write(note["content"])
+                st.caption(note["created_at"])
+                if st.button("حذف یادداشت", key=f"note_{note['id']}"):
+                    execute("DELETE FROM notes WHERE id = ?", (note["id"],))
+                    st.rerun()
     else:
-        for index, project in enumerate(reversed(projects)):
-            with st.expander(
-                f"{project['name']} — {project['created']}"
-            ):
-                st.write(project["details"])
+        st.info("حافظه این پروژه هنوز خالی است.")
 
-                if project.get("image"):
-                    st.image(
-                        project["image"],
-                        use_container_width=True,
-                    )
 
-                    st.download_button(
-                        "دانلود نتیجه",
-                        data=project["image"],
-                        file_name=f"orbit_project_{index + 1}.png",
-                        mime="image/png",
-                        key=f"download_project_{index}",
-                    )
-
-        if st.button("حذف فهرست پروژه‌های این نشست"):
-            st.session_state.saved_projects = []
-            st.rerun()
-
-# --------------------------------------------------
-# FOOTER
-# --------------------------------------------------
-
-st.sidebar.divider()
-st.sidebar.caption("ORBIT AI")
-st.sidebar.caption("Creative tools in one workspace")
+# ---------- Footer ----------
+st.divider()
+st.caption(
+    "ORBIT AI • حالت آنلاین از OpenRouter استفاده می‌کند؛ "
+    "حالت آفلاین امکانات پایه دارد."
+)
