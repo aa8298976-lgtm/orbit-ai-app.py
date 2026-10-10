@@ -354,8 +354,23 @@ def ask_ai(history, user_text):
                 f"{response.text[:1000]}"
             )
 
+        
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        content = message.get("content")
+
+        if isinstance(content, str) and content.strip():
+            if "<|tool_call_start|>" in content:
+                return (
+                    "مدل رایگان به‌جای پاسخ معمولی، دستور جست‌وجو برگرداند. "
+                    "لطفاً دوباره سؤال را ارسال کن."
+                )
+            return content
+
+        return (
+            "مدل رایگان این بار پاسخ متنی قابل‌نمایش برنگرداند. "
+            "لطفاً دوباره امتحان کن."
+        )
 
     except requests.Timeout:
         return "پاسخ‌گویی بیش از حد طول کشید. دوباره امتحان کن."
