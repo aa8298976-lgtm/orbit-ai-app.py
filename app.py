@@ -188,29 +188,55 @@ def get_messages(project):
 
 
 
+
+
 def save_message(project, role, content):
     with db() as conn:
-        conn.execute("""
-            INSERT INTO messages (project, role, content, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (
-            project or "گفت‌وگوی من",
-            role,
-            content or "",
-            datetime.now().isoformat()
-        ))
+        columns = table_columns(conn, "messages")
 
-    with db() as conn:
-        conn.execute("""
-            INSERT INTO messages (project, role, content, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (
-            project,
-            role,
-            content,
-            datetime.now().isoformat()
-        ))
+        project_name = project or "گفت‌وگوی من"
+        project_id = None
 
+        if "project_id" in columns:
+            project_row = conn.execute(
+                "SELECT id FROM projects WHERE name = ?",
+                (project_name,)
+            ).fetchone()
+
+            if project_row is None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, ?)",
+                    (project_name, datetime.now().isoformat())
+                )
+                project_row = conn.execute(
+                    "SELECT id FROM projects WHERE name = ?",
+                    (project_name,)
+                ).fetchone()
+
+            if project_row:
+                project_id = project_row[0]
+
+        values = {
+            "project": project_name,
+            "project_id": project_id,
+            "role": role,
+            "content": content or "",
+            "created_at": datetime.now().isoformat(),
+        }
+
+        insert_values = {
+            key: value
+            for key, value in values.items()
+            if key in columns
+        }
+
+        column_names = ", ".join(insert_values.keys())
+        placeholders = ", ".join("?" for _ in insert_values)
+
+        conn.execute(
+            f"INSERT INTO messages ({column_names}) VALUES ({placeholders})",
+            tuple(insert_values.values())
+        )
 
 def get_notes():
     with db() as conn:
