@@ -6,38 +6,77 @@
 
 
 
+
 import os
 import sqlite3
-import requests
-import streamlit as st
 from datetime import datetime
 
-# -------------------- PAGE CONFIG --------------------
+import requests
+import streamlit as st
+
+# ==================================================
+# ORBIT AI V2
+# ==================================================
+
 st.set_page_config(
     page_title="ORBIT AI",
     page_icon="🌌",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 DB_PATH = "orbit_memory.db"
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "openai/gpt-4o-mini"
 
-# -------------------- DATABASE --------------------
+
+# ==================================================
+# DATABASE
+# ==================================================
+
 def db():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    return sqlite3.connect(DB_PATH, timeout=30)
+
+
+def table_columns(conn, table):
+    return {
+        row[1]
+        for row in conn.execute(
+            f"PRAGMA table_info({table})"
+        ).fetchall()
+    }
+
+
+def ensure_columns(conn, table, definitions):
+    existing = table_columns(conn, table)
+
+    for column, definition in definitions.items():
+        if column not in existing:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+            )
+
 
 def init_db():
     with db() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project TEXT,
-                role TEXT,
-                content TEXT,
-                created_at TEXT
+                project TEXT DEFAULT 'گفت‌وگوی من',
+                role TEXT DEFAULT 'user',
+                content TEXT DEFAULT '',
+                created_at TEXT DEFAULT ''
             )
         """)
+
+        # Upgrade existing message tables without deleting history.
+        ensure_columns(conn, "messages", {
+            "project": "TEXT DEFAULT 'گفت‌وگوی من'",
+            "role": "TEXT DEFAULT 'user'",
+            "content": "TEXT DEFAULT ''",
+            "created_at": "TEXT DEFAULT ''",
+        })
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,126 +84,210 @@ def init_db():
                 created_at TEXT
             )
         """)
+
+        ensure_columns(conn, "projects", {
+            "name": "TEXT DEFAULT 'پروژه جدید'",
+            "created_at": "TEXT DEFAULT ''",
+        })
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT,
-                created_at TEXT
+                content TEXT DEFAULT '',
+                created_at TEXT DEFAULT ''
             )
         """)
+
+        ensure_columns(conn, "notes", {
+            "content": "TEXT DEFAULT ''",
+            "created_at": "TEXT DEFAULT ''",
+        })
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT,
+                content TEXT DEFAULT '',
                 done INTEGER DEFAULT 0,
-                created_at TEXT
+                created_at TEXT DEFAULT ''
             )
         """)
 
+        ensure_columns(conn, "tasks", {
+            "content": "TEXT DEFAULT ''",
+            "done": "INTEGER DEFAULT 0",
+            "created_at": "TEXT DEFAULT ''",
+        })
+
+        # Ensure old messages without a project remain accessible.
+        conn.execute("""
+            UPDATE messages
+            SET project = 'گفت‌وگوی من'
+            WHERE project IS NULL OR TRIM(project) = ''
+        """)
+
+        conn.execute("""
+            UPDATE messages
+            SET created_at = ?
+            WHERE created_at IS NULL OR created_at = ''
+        """, (datetime.now().isoformat(),))
+
+        conn.execute("""
+            INSERT OR IGNORE INTO projects (name, created_at)
+            VALUES ('گفت‌وگوی من', ?)
+        """, (datetime.now().isoformat(),))
+
+
+init_db()
+
+
+# ==================================================
+# DATA HELPERS
+# ==================================================
+
 def get_projects():
     with db() as conn:
-        rows = conn.execute(
-            "SELECT name FROM projects ORDER BY id DESC"
-        ).fetchall()
-    return [r[0] for r in rows]
+        rows = conn.execute("""
+            SELECT name FROM projects
+            WHERE name IS NOT NULL AND TRIM(name) != ''
+            ORDER BY id DESC
+        """).fetchall()
+
+    return [row[0] for row in rows]
+
 
 def create_project(name):
     name = name.strip()
-    if name:
+
+    if not name:
+        return False
+
+    try:
         with db() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, ?)",
-                (name, datetime.now().isoformat())
-            )
+            conn.execute("""
+                INSERT OR IGNORE INTO projects (name, created_at)
+                VALUES (?, ?)
+            """, (name, datetime.now().isoformat()))
+        return True
+    except sqlite3.Error:
+        return False
+
 
 def get_messages(project):
     with db() as conn:
-        rows = conn.execute(
-            """SELECT role, content FROM messages
-               WHERE project = ? ORDER BY id""",
-            (project,)
-        ).fetchall()
-    return [{"role": r, "content": c} for r, c in rows]
+        rows = conn.execute("""
+            SELECT role, content FROM messages
+            WHERE project = ?
+            ORDER BY id ASC
+        """, (project,)).fetchall()
+
+    return [
+        {"role": role, "content": content or ""}
+        for role, content in rows
+        if role in ("user", "assistant")
+    ]
+
 
 def save_message(project, role, content):
     with db() as conn:
-        conn.execute(
-            """INSERT INTO messages
-               (project, role, content, created_at)
-               VALUES (?, ?, ?, ?)""",
-            (project, role, content, datetime.now().isoformat())
-        )
+        conn.execute("""
+            INSERT INTO messages (project, role, content, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (
+            project,
+            role,
+            content,
+            datetime.now().isoformat()
+        ))
+
 
 def get_notes():
     with db() as conn:
-        return conn.execute(
-            "SELECT id, content FROM notes ORDER BY id DESC"
-        ).fetchall()
+        return conn.execute("""
+            SELECT id, content FROM notes
+            ORDER BY id DESC
+        """).fetchall()
+
 
 def add_note(content):
     with db() as conn:
-        conn.execute(
-            "INSERT INTO notes (content, created_at) VALUES (?, ?)",
-            (content, datetime.now().isoformat())
-        )
+        conn.execute("""
+            INSERT INTO notes (content, created_at)
+            VALUES (?, ?)
+        """, (content, datetime.now().isoformat()))
 
-def get_tasks():
-    with db() as conn:
-        return conn.execute(
-            "SELECT id, content, done FROM tasks ORDER BY id DESC"
-        ).fetchall()
-
-def add_task(content):
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO tasks (content, created_at) VALUES (?, ?)",
-            (content, datetime.now().isoformat())
-        )
-
-def update_task(task_id, done):
-    with db() as conn:
-        conn.execute(
-            "UPDATE tasks SET done = ? WHERE id = ?",
-            (int(done), task_id)
-        )
-
-def delete_task(task_id):
-    with db() as conn:
-        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
 
 def delete_note(note_id):
     with db() as conn:
         conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
 
-init_db()
 
-# -------------------- API CONFIG --------------------
-def get_secret(name, default=""):
+def get_tasks():
+    with db() as conn:
+        return conn.execute("""
+            SELECT id, content, done FROM tasks
+            ORDER BY id DESC
+        """).fetchall()
+
+
+def add_task(content):
+    with db() as conn:
+        conn.execute("""
+            INSERT INTO tasks (content, done, created_at)
+            VALUES (?, 0, ?)
+        """, (content, datetime.now().isoformat()))
+
+
+def update_task(task_id, done):
+    with db() as conn:
+        conn.execute("""
+            UPDATE tasks SET done = ? WHERE id = ?
+        """, (int(done), task_id))
+
+
+def delete_task(task_id):
+    with db() as conn:
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+
+# ==================================================
+# OPENROUTER
+# ==================================================
+
+def get_setting(name, default=""):
     try:
-        return st.secrets.get(name, default)
+        value = st.secrets.get(name, default)
+        if value:
+            return str(value)
     except Exception:
-        return os.environ.get(name, default)
+        pass
 
-API_KEY = get_secret("OPENROUTER_API_KEY", "")
-MODEL = get_secret("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    return os.environ.get(name, default)
+
+
+API_KEY = get_setting("OPENROUTER_API_KEY")
+MODEL = get_setting("OPENROUTER_MODEL", DEFAULT_MODEL)
+
 
 def ask_ai(history, user_text):
     if not API_KEY:
         return (
             "کلید OpenRouter تنظیم نشده است.\n\n"
-            "در Streamlit وارد Settings → Secrets شو و "
-            "OPENROUTER_API_KEY را تنظیم کن."
+            "در تنظیمات برنامه Streamlit، بخش Secrets، "
+            "کلید OPENROUTER_API_KEY را تنظیم کن."
         )
 
     notes = get_notes()
-    memory_text = "\n".join(n[1] for n in notes[-20:])
+    memory = "\n".join(
+        content for _, content in reversed(notes[-20:])
+        if content
+    )
 
     system_prompt = (
-        "You are ORBIT AI, a helpful, intelligent assistant. "
-        "Respond naturally in the user's language, especially Persian. "
-        "Be clear, practical, accurate, and friendly. "
-        "Do not claim to perform actions you did not perform.\n\n"
-        f"User memory notes, when relevant:\n{memory_text}"
+        "You are ORBIT AI, a helpful personal AI assistant. "
+        "Reply naturally in the user's language, especially Persian. "
+        "Be clear, accurate, practical, and friendly. "
+        "Never claim to have completed an action you did not perform.\n\n"
+        "Relevant saved notes:\n" + (memory or "No saved notes.")
     )
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -177,33 +300,35 @@ def ask_ai(history, user_text):
             headers={
                 "Authorization": f"Bearer {API_KEY}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://orbit-ai.streamlit.app",
-                "X-Title": "ORBIT AI"
+                "X-Title": "ORBIT AI",
             },
             json={
                 "model": MODEL,
                 "messages": messages,
-                "temperature": 0.5
+                "temperature": 0.5,
             },
-            timeout=60
+            timeout=60,
         )
 
         if response.status_code != 200:
             return (
-                f"خطای اتصال به هوش مصنوعی "
-                f"({response.status_code}):\n"
-                f"{response.text[:1200]}"
+                f"خطای OpenRouter: HTTP {response.status_code}\n\n"
+                f"{response.text[:1000]}"
             )
 
         data = response.json()
         return data["choices"][0]["message"]["content"]
 
     except requests.Timeout:
-        return "زمان پاسخ‌گویی تمام شد. دوباره تلاش کن."
-    except Exception as exc:
-        return f"خطا در ارتباط با هوش مصنوعی: {exc}"
+        return "پاسخ‌گویی بیش از حد طول کشید. دوباره امتحان کن."
+    except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+        return f"خطا در دریافت پاسخ از هوش مصنوعی: {exc}"
 
-# -------------------- DESIGN --------------------
+
+# ==================================================
+# DESIGN
+# ==================================================
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');
@@ -211,51 +336,57 @@ st.markdown("""
 html, body, [class*="css"] {
     font-family: 'Vazirmatn', sans-serif;
 }
+
 .stApp {
     background:
-        radial-gradient(ellipse at top right, #20224a 0%, transparent 40%),
-        linear-gradient(145deg, #090d19 0%, #101426 55%, #0a1020 100%);
+        radial-gradient(ellipse at top right, #222653 0%, transparent 42%),
+        linear-gradient(145deg, #090d19, #11162a 60%, #0a1020);
     color: #f3f4ff;
 }
+
 [data-testid="stSidebar"] {
     background: #0c1120;
-    border-right: 1px solid #272d46;
+    border-right: 1px solid #292f49;
 }
-h1, h2, h3, p, label {
-    color: #f3f4ff;
-}
+
 .orbit-hero {
     padding: 28px 24px;
-    border: 1px solid #353b66;
+    border: 1px solid #373e68;
     border-radius: 24px;
     background: linear-gradient(125deg, #20264b, #17182e 65%, #251b42);
     margin-bottom: 22px;
 }
+
 .orbit-kicker {
     color: #b7baff;
-    font-size: 13px;
+    font-size: 12px;
     letter-spacing: 2px;
 }
+
 .orbit-title {
-    font-size: clamp(30px, 5vw, 48px);
+    font-size: clamp(30px, 5vw, 46px);
     font-weight: 800;
-    margin: 6px 0;
+    margin: 8px 0;
 }
+
 .orbit-subtitle {
     color: #c3c8df;
     font-size: 15px;
 }
+
 .orbit-card {
     padding: 18px;
     border-radius: 18px;
-    border: 1px solid #2c3450;
-    background: rgba(22, 29, 51, .85);
+    border: 1px solid #303854;
+    background: rgba(22, 29, 51, .88);
     margin-bottom: 12px;
 }
+
 .orbit-muted {
     color: #aab2ce;
     font-size: 13px;
 }
+
 .stButton > button {
     border-radius: 12px;
     min-height: 42px;
@@ -263,34 +394,60 @@ h1, h2, h3, p, label {
     background: #252c50;
     color: white;
 }
+
 .stButton > button:hover {
     background: #343d70;
     border-color: #8188ff;
     color: white;
 }
+
 .stTextInput input, .stTextArea textarea {
     background: #11182b;
     color: white;
     border: 1px solid #343c59;
     border-radius: 12px;
 }
+
 [data-testid="stChatMessage"] {
     background: rgba(26, 33, 57, .85);
     border: 1px solid #303957;
     border-radius: 16px;
-    padding: 12px;
 }
+
 hr {
     border-color: #2a314a;
 }
+
 @media (max-width: 640px) {
-    .orbit-hero { padding: 20px 16px; border-radius: 18px; }
-    .orbit-title { font-size: 31px; }
+    .orbit-hero {
+        padding: 20px 16px;
+        border-radius: 18px;
+    }
+    .orbit-title {
+        font-size: 30px;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- SIDEBAR --------------------
+
+def hero(title, subtitle):
+    st.markdown(
+        f"""
+        <div class="orbit-hero">
+            <div class="orbit-kicker">ORBIT AI · INTELLIGENT WORKSPACE</div>
+            <div class="orbit-title">{title}</div>
+            <div class="orbit-subtitle">{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ==================================================
+# NAVIGATION
+# ==================================================
+
 with st.sidebar:
     st.markdown("## 🌌 ORBIT AI")
     st.caption("Your personal AI workspace")
@@ -305,69 +462,73 @@ with st.sidebar:
             "تحلیل متن",
             "حافظه",
             "پروژه‌ها",
-            "تنظیمات و اتصال"
+            "تنظیمات و اتصال",
         ],
-        label_visibility="collapsed"
+        label_visibility="collapsed",
     )
 
     st.divider()
     st.caption("ORBIT AI · Personal Workspace")
 
-# -------------------- HERO --------------------
-def hero(title, subtitle):
-    st.markdown(
-        f"""
-        <div class="orbit-hero">
-            <div class="orbit-kicker">ORBIT AI · INTELLIGENT WORKSPACE</div>
-            <div class="orbit-title">{title}</div>
-            <div class="orbit-subtitle">{subtitle}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
+
+# ==================================================
+# HOME
+# ==================================================
+
+if page == "خانه":
+    hero(
+        "فضای هوشمند تو",
+        "ایده‌ها را به برنامه تبدیل کن؛ با کمک هوش مصنوعی."
     )
 
-# -------------------- HOME --------------------
-if page == "خانه":
-    hero("فضای هوشمند تو", "ایده‌ها را به برنامه تبدیل کن؛ با کمک هوش مصنوعی.")
-
     c1, c2, c3 = st.columns(3)
+
     with c1:
         st.markdown(
             '<div class="orbit-card"><h3>💬 گفت‌وگو</h3>'
             '<p class="orbit-muted">پرسش، ایده‌پردازی و حل مسئله</p></div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
+
     with c2:
         st.markdown(
             '<div class="orbit-card"><h3>🗓️ برنامه‌ریز</h3>'
             '<p class="orbit-muted">مدیریت وظایف روزانه</p></div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
+
     with c3:
         st.markdown(
             '<div class="orbit-card"><h3>🧠 حافظه</h3>'
             '<p class="orbit-muted">یادداشت‌های مهم تو</p></div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
     st.subheader("شروع سریع")
     prompt = st.text_input(
         "چه کاری می‌خواهی انجام بدهی؟",
-        placeholder="مثلاً برای امروز یک برنامه دقیق بساز..."
+        placeholder="مثلاً برای امروز یک برنامه دقیق بساز...",
     )
+
     if st.button("شروع گفت‌وگو", use_container_width=True):
         if prompt.strip():
-            st.session_state["quick_prompt"] = prompt
+            st.session_state["quick_prompt"] = prompt.strip()
+            st.session_state["next_page"] = "گفت‌وگوی هوشمند"
             st.rerun()
 
-    if st.session_state.get("quick_prompt"):
-        st.info("پیامت آماده است. از منوی کناری وارد «گفت‌وگوی هوشمند» شو.")
 
-# -------------------- CHAT --------------------
+# ==================================================
+# CHAT
+# ==================================================
+
 elif page == "گفت‌وگوی هوشمند":
-    hero("گفت‌وگوی هوشمند", "با ORBIT AI درباره ایده‌ها و کارهایت گفت‌وگو کن.")
+    hero(
+        "گفت‌وگوی هوشمند",
+        "با ORBIT AI درباره ایده‌ها و کارهایت گفت‌وگو کن."
+    )
 
     projects = get_projects()
+
     if not projects:
         create_project("گفت‌وگوی من")
         projects = get_projects()
@@ -381,11 +542,13 @@ elif page == "گفت‌وگوی هوشمند":
 
     quick_prompt = st.session_state.pop("quick_prompt", "")
     user_text = st.chat_input("پیامت را اینجا بنویس...")
+
     if quick_prompt and not user_text:
         user_text = quick_prompt
 
     if user_text:
         save_message(selected_project, "user", user_text)
+
         with st.chat_message("user"):
             st.markdown(user_text)
 
@@ -401,16 +564,26 @@ elif page == "گفت‌وگوی هوشمند":
         with db() as conn:
             conn.execute(
                 "DELETE FROM messages WHERE project = ?",
-                (selected_project,)
+                (selected_project,),
             )
         st.rerun()
 
-# -------------------- PLANNER --------------------
+
+# ==================================================
+# PLANNER
+# ==================================================
+
 elif page == "برنامه‌ریز":
-    hero("برنامه‌ریز شخصی", "کارهایت را ثبت کن و پیشرفتت را دنبال کن.")
+    hero(
+        "برنامه‌ریز شخصی",
+        "کارهایت را ثبت کن و پیشرفتت را دنبال کن."
+    )
 
     with st.form("task_form", clear_on_submit=True):
-        task = st.text_input("کار جدید", placeholder="مثلاً ۳۰ دقیقه مطالعه")
+        task = st.text_input(
+            "کار جدید",
+            placeholder="مثلاً ۳۰ دقیقه مطالعه",
+        )
         submitted = st.form_submit_button("افزودن کار")
 
     if submitted and task.strip():
@@ -418,36 +591,48 @@ elif page == "برنامه‌ریز":
         st.rerun()
 
     tasks = get_tasks()
-    done_count = sum(1 for t in tasks if t[2])
+    done_count = sum(1 for task in tasks if task[2])
+
     if tasks:
         st.progress(done_count / len(tasks))
         st.caption(f"{done_count} از {len(tasks)} کار انجام شده")
 
     for task_id, content, done in tasks:
         c1, c2 = st.columns([5, 1])
+
         with c1:
             checked = st.checkbox(
                 content,
                 value=bool(done),
-                key=f"task_{task_id}"
+                key=f"task_{task_id}",
             )
+
             if int(checked) != int(done):
                 update_task(task_id, checked)
                 st.rerun()
+
         with c2:
             if st.button("حذف", key=f"delete_{task_id}"):
                 delete_task(task_id)
                 st.rerun()
 
-# -------------------- TEXT ANALYSIS --------------------
+
+# ==================================================
+# TEXT ANALYSIS
+# ==================================================
+
 elif page == "تحلیل متن":
-    hero("تحلیل متن", "متن را وارد کن و از هوش مصنوعی برای بررسی آن کمک بگیر.")
+    hero(
+        "تحلیل متن",
+        "متن را وارد کن و از هوش مصنوعی برای بررسی آن کمک بگیر."
+    )
 
     text_input = st.text_area(
         "متن موردنظر",
         height=220,
-        placeholder="متن خود را اینجا وارد کن..."
+        placeholder="متن خود را اینجا وارد کن...",
     )
+
     mode = st.selectbox(
         "نوع تحلیل",
         [
@@ -455,8 +640,8 @@ elif page == "تحلیل متن":
             "تحلیل و بررسی",
             "اصلاح نگارش",
             "ترجمه به انگلیسی",
-            "استخراج نکات کلیدی"
-        ]
+            "استخراج نکات کلیدی",
+        ],
     )
 
     if st.button("تحلیل متن", use_container_width=True):
@@ -464,26 +649,39 @@ elif page == "تحلیل متن":
             st.warning("ابتدا متن را وارد کن.")
         else:
             instruction = (
-                f"لطفاً کار زیر را روی متن انجام بده: {mode}\n\n"
+                f"این کار را روی متن انجام بده: {mode}\n\n"
                 f"متن:\n{text_input}"
             )
+
             with st.spinner("در حال پردازش..."):
                 result = ask_ai([], instruction)
+
             st.markdown("### نتیجه")
             st.markdown(result)
+
             st.download_button(
                 "دانلود نتیجه به‌صورت TXT",
                 data=result,
                 file_name="orbit_analysis.txt",
-                mime="text/plain"
+                mime="text/plain",
             )
 
-# -------------------- MEMORY --------------------
+
+# ==================================================
+# MEMORY
+# ==================================================
+
 elif page == "حافظه":
-    hero("حافظه شخصی", "یادداشت‌هایی ثبت کن که در گفت‌وگوهای بعدی به پاسخ‌ها کمک کنند.")
+    hero(
+        "حافظه شخصی",
+        "یادداشت‌هایی ثبت کن که در گفت‌وگوهای بعدی به پاسخ‌ها کمک کنند."
+    )
 
     with st.form("note_form", clear_on_submit=True):
-        note = st.text_area("یادداشت جدید", placeholder="نکته‌ای که می‌خواهی ذخیره شود...")
+        note = st.text_area(
+            "یادداشت جدید",
+            placeholder="نکته‌ای که می‌خواهی ذخیره شود...",
+        )
         save = st.form_submit_button("ذخیره یادداشت")
 
     if save and note.strip():
@@ -492,66 +690,90 @@ elif page == "حافظه":
         st.rerun()
 
     notes = get_notes()
+
     if not notes:
         st.info("هنوز یادداشتی ثبت نشده است.")
 
     for note_id, content in notes:
         with st.container(border=True):
             st.write(content)
+
             if st.button("حذف یادداشت", key=f"note_{note_id}"):
                 delete_note(note_id)
                 st.rerun()
 
-# -------------------- PROJECTS --------------------
+
+# ==================================================
+# PROJECTS
+# ==================================================
+
 elif page == "پروژه‌ها":
-    hero("مدیریت پروژه‌ها", "برای موضوعات مختلف فضای کاری جدا بساز.")
+    hero(
+        "مدیریت پروژه‌ها",
+        "برای موضوعات مختلف فضای کاری جدا بساز."
+    )
 
     with st.form("project_form", clear_on_submit=True):
-        name = st.text_input("نام پروژه", placeholder="مثلاً ایده‌های جدید")
+        name = st.text_input(
+            "نام پروژه",
+            placeholder="مثلاً ایده‌های جدید",
+        )
         create = st.form_submit_button("ساخت پروژه")
 
     if create and name.strip():
-        create_project(name.strip())
-        st.success("پروژه ثبت شد.")
+        if create_project(name.strip()):
+            st.success("پروژه ثبت شد.")
         st.rerun()
 
-    projects = get_projects()
-    for project in projects:
+    for project in get_projects():
         st.markdown(
             f'<div class="orbit-card">📁 {project}</div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
     st.caption("تاریخچه گفت‌وگوها بر اساس پروژه جدا می‌شود.")
 
-# -------------------- SETTINGS --------------------
+
+# ==================================================
+# SETTINGS
+# ==================================================
+
 elif page == "تنظیمات و اتصال":
-    hero("تنظیمات سیستم", "وضعیت اتصال ORBIT AI را بررسی کن.")
+    hero(
+        "تنظیمات سیستم",
+        "وضعیت اتصال ORBIT AI را بررسی کن."
+    )
 
     st.markdown("### اتصال به OpenRouter")
+
     if API_KEY:
-        st.success("کلید API پیدا شد؛ تنظیم کلید در محیط برنامه موجود است.")
+        st.success("کلید API پیدا شد.")
     else:
-        st.error("کلید OPENROUTER_API_KEY پیدا نشد.")
+        st.error(
+            "کلید پیدا نشد. نام Secret باید OPENROUTER_API_KEY باشد."
+        )
 
     st.write(f"**مدل فعلی:** `{MODEL}`")
 
-    st.markdown("### بررسی اتصال")
     if st.button("تست اتصال به هوش مصنوعی", use_container_width=True):
         with st.spinner("در حال بررسی اتصال..."):
-            test = ask_ai([], "فقط بنویس: اتصال موفق است.")
+            result = ask_ai([], "فقط بنویس: اتصال موفق است.")
+
         st.markdown("### نتیجه تست")
-        st.write(test)
+        st.write(result)
 
     st.divider()
     st.markdown("### نکات مهم")
+
     st.write(
         "- کلید API را در کد عمومی قرار نده.\n"
-        "- کلید باید در تنظیمات Secrets برنامه میزبانی‌شده ثبت شده باشد.\n"
-        "- پایگاه داده SQLite در این نسخه محلی است؛ "
-        "ممکن است با راه‌اندازی مجدد یا استقرار مجدد در فضای ابری "
-        "همه اطلاعات ماندگار نمانند."
+        "- کلید را در Streamlit Secrets نگه دار.\n"
+        "- SQLite در این نسخه برای ذخیره محلی استفاده می‌شود؛ "
+        "در Streamlit Cloud ممکن است اطلاعات با تعویض محیط یا "
+        "راه‌اندازی مجدد از بین بروند. برای ماندگاری مطمئن، "
+        "پایگاه داده دائمی لازم است."
     )
 
+
 st.divider()
-st.caption("ORBIT AI · Designed for ideas, focus and progress")
+st.caption("ORBIT AI · Ideas, focus and progress")
